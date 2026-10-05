@@ -1,0 +1,26 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trading-tokenizer-api
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/trading_signals_app.db
+      - APP_HISTORICAL_DB_PATH=/app/data/trading_signals.db
+      - RUN_SEED=true
+      - PORT=8000
+    volumes:
+      - tokenizer_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  tokenizer_data:
+    driver: local
