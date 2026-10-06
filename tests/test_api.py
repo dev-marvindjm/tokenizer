@@ -48,7 +48,7 @@ async def test_templates_crud_and_match():
         template_id = tpl_data["id"]
 
         # List templates
-        res_list = await client.get("/api/v1/templates?limit=10")
+        res_list = await client.get("/api/v1/templates?limit=200")
         assert res_list.status_code == 200
         templates = res_list.json()
         assert any(t["id"] == template_id for t in templates)

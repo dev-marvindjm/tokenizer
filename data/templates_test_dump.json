@@ -1,0 +1,626 @@
+[
+  {
+    "id": 1,
+    "name": "Standard Forex Market Signal (TP/SL)",
+    "pattern_syntax": "$(symbol) $(action) $(entry_price)\n\nTP $(profit_price)\nSL $(stoploss)",
+    "example_text": "GBPJPY BUY 199.600\n\nTP 199.700\nSL 199.200",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 2,
+    "name": "Range Entry Market Signal",
+    "pattern_syntax": "$(action) TRADE $(symbol)\n\n$(entry_range) -$(entry_range)\n\n📍Stop Loss: $(stoploss)\nTarget: $(profit_price)",
+    "example_text": "BUY TRADE XAU/USD\n\n4086.0 -4089.0\n\n📍Stop Loss: 4073.0\nTarget: open",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 3,
+    "name": "Binary Expiration Signal",
+    "pattern_syntax": "✅ ENTRY CONFIRMED ✅\n🌎 COIN: $(symbol)\n⏳ EXPIRATION: $(period)\n📊 DIRECTION: $(action)\n⏰ TIME: $(entry_time)",
+    "example_text": "✅ ENTRY CONFIRMED ✅\n🌎 COIN: EUR/HUF OTC\n⏳ EXPIRATION: M1\n📊 DIRECTION: VENDA\n⏰ TIME: 14:09",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 4,
+    "name": "Strategy Indicator Signal (Crypto/Futures)",
+    "pattern_syntax": "📊 [ESTRATEGIA 8 💵]\n\n🪙 $(symbol)\n🔴 $(action)\n⏳ $(period_digit)$(period_name)\n💰 $(entry_price)",
+    "example_text": "📊 [ESTRATEGIA 8 💵]\n\n🪙 EURGBP\n🔴 SHORT\n⏳ 5min\n💰 0.85573",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 5,
+    "name": "Signal Template (Msg #10546) — 2026-08-19",
+    "pattern_syntax": "✅ ENTRY CONFIRMED ✅\n🌎 COIN: $(symbol)\n⏳ EXPIRATION: $(period)\n📊 DIRECTION: $(action)\n⏰ TIME: $(entry_time)\n\nREGISTER HERE",
+    "example_text": "✅ ENTRY CONFIRMED ✅\n🌎 COIN: EUR/HUF OTC\n⏳ EXPIRATION: M1\n📊 DIRECTION: VENDA\n⏰ TIME: 14:09\n\nREGISTER HERE",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 6,
+    "name": "Signal Template (Msg #10548) — 2026-08-19",
+    "pattern_syntax": "📊 [ESTRATEGIA 8 💵]\n\n🪙 $(symbol)\n🔴 $(action)\n⏳ $(period_digit)$(period_name)\n💰 $(entry_price)\n📈 RSI: 73\n💪 ADX: 26\n❌ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "example_text": "📊 [ESTRATEGIA 8 💵]\n\n🪙 EURGBP\n🔴 SHORT\n⏳ 5min\n💰 0.85573\n📈 RSI: 73\n💪 ADX: 26\n❌ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 7,
+    "name": "Signal Template (Msg #8082) — 2026-08-22",
+    "pattern_syntax": "$(action) TRADE $(symbol) \n\n$(entry_range) -$(entry_range)\n\n📍Stop Loss: $(stoploss)\n\nTarget: $(profit_price) \n\nThis is not financial advice. This is a personal trade idea shared for educational and informational purposes only.",
+    "example_text": "BUY TRADE XAU/USD \n\n4086.0 -4089.0\n\n📍Stop Loss: 4073.0\n\nTarget: open \n\nThis is not financial advice. This is a personal trade idea shared for educational and informational purposes only.",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 8,
+    "name": "Signal Template (Msg #10633) — 2026-08-22",
+    "pattern_syntax": "🕯 #$(symbol) $(action) $(entry_price)\n\nTP $(profit_price)\n\n🔴 SL_$(stoploss)",
+    "example_text": "🕯 #XAUUSD SELL 4534\n\nTP 4530\n\n🔴 SL_4546",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 9,
+    "name": "Signal Template (Msg #8281) — 2026-08-22",
+    "pattern_syntax": "🔔  $(symbol)  🎯| $(dismiss) $(action) |  $(entry_price)\n    ⛔️SL  $(stoploss)\n    ✅ TP$(dismiss)  $(profit_price)",
+    "example_text": "🔔  GOLD  🎯| 🔴 SELL |  4103.50\n    ⛔️SL  4109.50\n    ✅ TP1  4101.50",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 10,
+    "name": "Signal Template (Msg #7461) — 2026-08-22",
+    "pattern_syntax": "💥XAUUSD $(symbol) $(action)  $(entry_price)💯💯\n\n  🔽TP.$(dismiss). $(profit_price)\n\n❌SL.TP. $(stoploss)",
+    "example_text": "💥XAUUSD NOW SELL  4095💯💯\n\n  🔽TP.1. 4090\n\n❌SL.TP. 4103",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 11,
+    "name": "Signal Template (Msg #10700) — 2026-08-23",
+    "pattern_syntax": "📊 [ESTRATEGIA 8 💵]\n\n🪙 $(symbol)\n🟢 $(action)\n⏳ $(period_digit)$(period_name)\n💰 $(entry_price)\n📉 RSI: 25\n💪 ADX: 35\n✅ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "example_text": "📊 [ESTRATEGIA 8 💵]\n\n🪙 GBPJPY\n🟢 LONG\n⏳ 5min\n💰 216.814\n📉 RSI: 25\n💪 ADX: 35\n✅ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 12,
+    "name": "Signal Template (Msg #10655) — 2026-08-23",
+    "pattern_syntax": "📊 [ESTRATEGIA 8]\n\n🪙 $(symbol)\n🔴 $(action)\n⏳ $(period_digit)$(period_name)\n💰 $(entry_price)\n📈 RSI: 74\n💪 ADX: 25\n❌ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "example_text": "📊 [ESTRATEGIA 8]\n\n🪙 KNCUSDT\n🔴 SHORT\n⏳ 5min\n💰 0.1072\n📈 RSI: 74\n💪 ADX: 25\n❌ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 13,
+    "name": "Signal Template (Msg #10536) — 2026-08-23",
+    "pattern_syntax": "🛰 POCKET OPTION M1\n\n💷 $(symbol)\n💎 $(period)\n⌚️ $(entry_time)\n🔽 $(action)",
+    "example_text": "🛰 POCKET OPTION M1\n\n💷 EURUSD-OTC\n💎 M1\n⌚️ 14:07:00\n🔽 put",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 14,
+    "name": "Signal Template (Msg #10662) — 2026-08-23",
+    "pattern_syntax": "This is not financial advice. Use appropriate risk management if you're going to trade. \n\nDirection  $(action) \n\nCurrency: $(symbol)\nENTRY : $(entry_range)\n🤑TP $(dismiss): $(profit_price)\n🔥LEAVE OPEN:\n\n🛑 SL:  $(stoploss)",
+    "example_text": "This is not financial advice. Use appropriate risk management if you're going to trade. \n\nDirection  BUY \n\nCurrency: XAUUSD\nENTRY : 4525-4520\n🤑TP 1: 4527\n🔥LEAVE OPEN:\n\n🛑 SL:  4519",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 15,
+    "name": "Signal Template (Msg #7825) — 2026-08-23",
+    "pattern_syntax": "$(action) $(symbol) @$(entry_range)\n\n$(dismiss) :$(stoploss)\n\nTp $(dismiss): $(profit_price)\n\nEnter Slowly-Layer with proper money management\n\nDo not rush your entries",
+    "example_text": "Buy Gold @4101.5-4091.5\n\nSl :4087.5\n\nTp 1: 4105.5\n\nEnter Slowly-Layer with proper money management\n\nDo not rush your entries",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 16,
+    "name": "Signal Template (Msg #5823) — 2026-08-23",
+    "pattern_syntax": "🕯 #$(symbol) $(action) $(entry_price)\n\nTP $(profit_price)\n\n🔴 SL_$(stoploss)",
+    "example_text": "🕯 #XAUUSD BUY 4040\n\nTP 4044\n\n🔴 SL_4026",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 17,
+    "name": "Signal Template (Msg #8281) — 2026-08-23",
+    "pattern_syntax": "🔔  $(symbol)  🎯| $(dismiss) $(action) |  $(entry_price)\n    ⛔️$(dismiss)  $(stoploss)\n    ✅ TP $(dismiss)  $(profit_price)",
+    "example_text": "🔔  GOLD  🎯| 🔴 SELL |  4103.50\n    ⛔️SL  4109.50\n    ✅ TP 1  4101.50",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 18,
+    "name": "Signal Template (Msg #4778) — 2026-08-23",
+    "pattern_syntax": "🚨 SEÑAL POR ZONAS 🚨\n\n🕒 Temporalidad: $(period)\n📍 Divisa: $(symbol)\n📊 Tipo de acción: $(action) $(dismiss)\n⏰ Zona clave: $(entry_time)-$(dismiss) ($(timezone))\n🧠 Análisis: Rechazo en resistencia con mechas superiores largas y presión vendedora.\n\n🤖 Más señales por zonas en O.D.A clic aquí\n\n✍️ RESUMEN\n$(dismiss)/$(dismiss)/$(dismiss)-$(dismiss)/$(dismiss)\n(Elige el Mejor $(period_name) entre los dos | MAX 1 GALE Opcional)",
+    "example_text": "🚨 SEÑAL POR ZONAS 🚨\n\n🕒 Temporalidad: M1\n📍 Divisa: EURJPY\n📊 Tipo de acción: VENTA 🔴\n⏰ Zona clave: 11:04-11:05 (UTC-5)\n🧠 Análisis: Rechazo en resistencia con mechas superiores largas y presión vendedora.\n\n🤖 Más señales por zonas en O.D.A clic aquí\n\n✍️ RESUMEN\nM1/EURJPY/11:04-11:05/PUT\n(Elige el Mejor Minuto entre los dos | MAX 1 GALE Opcional)",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 19,
+    "name": "Signal Template (Msg #2968) — 2026-08-23",
+    "pattern_syntax": "• SEÑALES EN VIVO SIN MARTINGALAS \n\n$(symbol)\n$(entry_time)\n$(action)\n$(period)\n",
+    "example_text": "• SEÑALES EN VIVO SIN MARTINGALAS \n\nEURUSD\n11:15\nCALL\nM1\n",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 20,
+    "name": "Signal Template (Msg #7461) — 2026-08-23",
+    "pattern_syntax": "💥XAUUSD $(symbol) $(action)  $(entry_price)💯💯\n\n  🔽TP.$(dismiss). $(profit_price)\n\n❌SL.TP. $(stoploss)",
+    "example_text": "💥XAUUSD NOW SELL  4095💯💯\n\n  🔽TP.1. 4090\n\n❌SL.TP. 4103",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 21,
+    "name": "Signal Template (Msg #10610) — 2026-08-23",
+    "pattern_syntax": "$(symbol) $(action) \n\nENTRY $(entry_range)\nSL $(stoploss)\nTP $(profit_price)",
+    "example_text": "XAUUSD BUY \n\nENTRY 4483.7-4473.7\nSL 4468.7\nTP 4487.7",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 22,
+    "name": "Signal Template (Msg #8357) — 2026-08-23",
+    "pattern_syntax": "$(symbol) $(action) \n\nENTRY @  $(entry_price)\nSL:   $(stoploss)\n\nTP$(dismiss):   $(profit_price)\n",
+    "example_text": "AUDCAD SELL \n\nENTRY @  0.98768\nSL:   0.98996\n\nTP1:   0.98556",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 23,
+    "name": "Signal Template (Msg #7756) — 2026-08-23",
+    "pattern_syntax": "$(symbol) $(action) now @$(entry_price)\n\nSL:$(stoploss)\n\nTp$(dismiss)-$(profit_price)",
+    "example_text": "Gold buy now @4102\n\nSL:4001\n\nTp1-4106",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 24,
+    "name": "Signal Template (Msg #8322) — 2026-08-23",
+    "pattern_syntax": "$(symbol) $(action) @ $(entry_price)\n\nTP: $(profit_price) (scalper) \nSL: $(stoploss)\n\n▪️Use money management 2-3%",
+    "example_text": "GBPJPY BUY @ 217.80\n\nTP: 218.00 (scalper) \nSL: 217.60\n\n▪️Use money management 2-3%",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 25,
+    "name": "Signal Template (Msg #2996) — 2026-08-23",
+    "pattern_syntax": "💎SEÑALES EN VIVO - OTC💎\n\n⏰ Zona Horaria: $(timezone) \n\n• $(period) $(symbol)\n• 🔽 $(action)\n• $(entry_time)\n• $(dismiss): $(dismiss) $(dismiss) \n• Recupera hasta 1 gale\n\n👍 Haz clic aquí para abrir el broker",
+    "example_text": "💎SEÑALES EN VIVO - OTC💎\n\n⏰ Zona Horaria: UTC-6 \n\n• M5 AUDCHF-OTC\n• 🔽 PUT\n• 09:50\n• M5: 5 Minutos \n• Recupera hasta 1 gale\n\n👍 Haz clic aquí para abrir el broker",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 26,
+    "name": "Signal Template (Msg #4716) — 2026-08-23",
+    "pattern_syntax": "📊 SEÑAL GRATIS 📊\n⏰ HORARIO: $(timezone) 🇺🇾🇦🇷🇧🇷\n\n• Punto de entrada: $(entry_price)\n• Divisa: $(symbol) 🇺🇸🇨🇦\n• Dirección: $(action) 🟩\n• Expiración: $(period_digit) $(period_name)\n\n⚠️Importante: Una vez tocado en el punto hacer la entrada en la siguiente vela\n👨🏽‍💻 SEÑAL ANALIZADA EN VIVO - SIN MARTINGALE",
+    "example_text": "📊 SEÑAL GRATIS 📊\n⏰ HORARIO: UTC-3 🇺🇾🇦🇷🇧🇷\n\n• Punto de entrada: 1.40940\n• Divisa: USDCAD 🇺🇸🇨🇦\n• Dirección: CALL 🟩\n• Expiración: 5 minutos\n\n⚠️Importante: Una vez tocado en el punto hacer la entrada en la siguiente vela\n👨🏽‍💻 SEÑAL ANALIZADA EN VIVO - SIN MARTINGALE",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 27,
+    "name": "Signal Template (Msg #1835) — 2026-08-23",
+    "pattern_syntax": "#$(symbol) INSTANT- $(action)📈\n\nENTRY: $(entry_price)\n\nSTOP LOSS: $(stoploss)\n\nTP $(dismiss): $(profit_price)",
+    "example_text": "#XAUUSD INSTANT- BUY📈\n\nENTRY: 4038\n\nSTOP LOSS: 4028\n\nTP 1: 4041",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 28,
+    "name": "Signal Template (Msg #10725) — 2026-08-23",
+    "pattern_syntax": "🪙 $(symbol)\n🔴 $(action)\n⏳ $(period_digit)$(period_name)\n💰 $(entry_price)\n🕯️ $(entry_price)% \n📈 RSI: 80\n\n😢 ¡IMPORTANTE! Los bots dejarán de funcionar el 09/10/2027. Obtén el código de los bots, ¡puedes usar la IA para personalizar el tuyo! Precio simbólico de 💰25$. Más info ➡️ AQUÍ ⬅️",
+    "example_text": "🪙 AAVEUSDT.P\n🔴 SHORT\n⏳ 3min\n💰 143.65\n🕯️ 1.65% \n📈 RSI: 80\n\n😢 ¡IMPORTANTE! Los bots dejarán de funcionar el 09/10/2027. Obtén el código de los bots, ¡puedes usar la IA para personalizar el tuyo! Precio simbólico de 💰25$. Más info ➡️ AQUÍ ⬅️",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 29,
+    "name": "Signal Template (Msg #6386) — 2026-08-23",
+    "pattern_syntax": "#$(symbol) 📉 $(action)\n\nRango de entrada: $(entry_price)$ - $(entry_price)$\nTP: $(profit_price)$ - $(profit_price)$\nSL: $(stoploss)$\n\nRiesgo: 1%\n\nLa moneda barrió la liquidez superior, tras lo cual rompió la estructura alcista y quebró la línea de tendencia. Ahora el precio ha testeado la zona de oferta y está mostrando reacción. Por debajo hay grandes pools de liquidez. Espero un movimiento a la baja.",
+    "example_text": "#INJ/USDT 📉 SHORT\n\nRango de entrada: 5.244$ - 5.096$\nTP: 4.936$ - 4.729$\nSL: 5.531$\n\nRiesgo: 1%\n\nLa moneda barrió la liquidez superior, tras lo cual rompió la estructura alcista y quebró la línea de tendencia. Ahora el precio ha testeado la zona de oferta y está mostrando reacción. Por debajo hay grandes pools de liquidez. Espero un movimiento a la baja.",
+    "template_type": "market",
+    "is_active": 0
+  },
+  {
+    "id": 30,
+    "name": "Signal Template (Msg #10762) — 2026-08-23",
+    "pattern_syntax": "👑 The King 1 Minuto VIP Pocket Option 👑\n\n💷 $(symbol)\n💎 $(period)\n⌚️ $(entry_time)\n🔼 $(action)\n\n \n\nLink de registro Pocket Option",
+    "example_text": "👑 The King 1 Minuto VIP Pocket Option 👑\n\n💷 CADCHF-OTC\n💎 M1\n⌚️ 18:43:00\n🔼 call\n\n \n\nLink de registro Pocket Option",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 31,
+    "name": "Signal Template (Msg #10705) — 2026-08-23",
+    "pattern_syntax": "🚥 SEÑALE LIBRE 🚥\n⏰ Huso horario: $(timezone)\n\n• $(symbol) - $(action) $(dismiss) - $(entry_time)\n• Caducidad: $(dismiss) $(dismiss) ($(period))\n• Si pierdes, recupera hasta 1 Gale.\n\n📲 Click para abrir el broker\n➡️ No sabes cómo operar? Haga clic aquí",
+    "example_text": "🚥 SEÑALE LIBRE 🚥\n⏰ Huso horario: UTC-3\n\n• AUDCAD-OTC - PUT 🟥 - 18:05\n• Caducidad: 5 minutos (M5)\n• Si pierdes, recupera hasta 1 Gale.\n\n📲 Click para abrir el broker\n➡️ No sabes cómo operar? Haga clic aquí",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 32,
+    "name": "Signal Template (Msg #10692) — 2026-08-23",
+    "pattern_syntax": "🚥 SEÑALE LIBRE 🚥\n⏰ Huso horario: $(timezone)\n\n• $(symbol) - $(action) $(dismiss) - $(entry_time)\n• Caducidad: $(dismiss) $(dismiss) ($(period))\n• Si pierdes, recupera hasta 1 Gale.\n\n📲 Click para abrir el broker\n➡️ No sabes cómo operar? Haga clic aquí",
+    "example_text": "🚥 SEÑALE LIBRE 🚥\n⏰ Huso horario: UTC-3\n\n• GBPUSD-OTC - PUT 🟥 - 20:05\n• Caducidad: 5 minutos (M5)\n• Si pierdes, recupera hasta 1 Gale.\n\n📲 Click para abrir el broker\n➡️ No sabes cómo operar? Haga clic aquí",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 33,
+    "name": "Signal Template (Msg #10747) — 2026-08-23",
+    "pattern_syntax": "💳 $(symbol)\n🔥 $(period)\n⌛ $(entry_time)\n🔼 $(action)\n\n🚦 Tend: $(action)\n📈 Forecast: $(dismiss)%\n💸 Payout: $(dismiss)%\n\nBEST SIGNALS\nhttps://quotex.io/sign-up/?lid=83934",
+    "example_text": "💳 NZDCHF-OTC\n🔥 M1\n⌛ 18:31:00\n🔼 call\n\n🚦 Tend: Buy\n📈 Forecast: 81.55%\n💸 Payout: 85.0%\n\nBEST SIGNALS\nhttps://quotex.io/sign-up/?lid=83934",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 34,
+    "name": "Signal Template (Msg #10741) — 2026-08-23",
+    "pattern_syntax": "✅ ENTRY CONFIRMED ✅\n\n🌎 coin: $(symbol) $(otc)\n⏳ Expiration: $(period)\n📊 Direction: $(dismiss) $(action)\n⏰ time: $(entry_time)\n\n👉 Use up to two Martingale steps in the event of a loss!\n1º GALE: ENDS IN: 18:28h\n2º GALE: ENDS IN: 18:29h\n\n📱 REGISTER HERE",
+    "example_text": "✅ ENTRY CONFIRMED ✅\n\n🌎 coin: EUR/JPY OTC\n⏳ Expiration: M1\n📊 Direction: 🔴 SELL\n⏰ time: 18:27\n\n👉 Use up to two Martingale steps in the event of a loss!\n1º GALE: ENDS IN: 18:28h\n2º GALE: ENDS IN: 18:29h\n\n📱 REGISTER HERE",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 35,
+    "name": "Signal Template (Msg #10701) — 2026-08-23",
+    "pattern_syntax": "✅ ENTRY CONFIRMED ✅\n\n🌎 coin: $(symbol) $(otc)\n⏳ Expiration: $(period)\n📊 Direction: $(dismiss) $(action)\n⏰ time: $(entry_time)\n\n👉 Use up to two Martingale steps in the event of a loss!\n1º GALE: ENDS IN: 17:46h\n2º GALE: ENDS IN: 17:47h\n\n📱 REGISTER HERE",
+    "example_text": "✅ ENTRY CONFIRMED ✅\n\n🌎 coin: USD/COP OTC\n⏳ Expiration: M1\n📊 Direction: 🟢 BUY\n⏰ time: 17:45\n\n👉 Use up to two Martingale steps in the event of a loss!\n1º GALE: ENDS IN: 17:46h\n2º GALE: ENDS IN: 17:47h\n\n📱 REGISTER HERE",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 36,
+    "name": "Signal Template (Msg #10576) — 2026-08-23",
+    "pattern_syntax": "💰 Vencimiento en $(period_digit) $(period_name)\n$(symbol);$(entry_time);$(action) $(dismiss)\n\n🕐HORA HASTA LAS $(dismiss)\n\n1.ª GALE —>HORA HASTA LAS 11:40\n2.ª GALE —>HORA HASTA LAS 11:45\n\n📲 Haz clic para abrir el broker\n🙋‍♂️ ¿Aún no sabes cómo operar? Haz clic aquí",
+    "example_text": "💰 Vencimiento en 5 minutos\nUSD/BDT;11:30;PUT 🟥\n\n🕐HORA HASTA LAS 11:35\n\n1.ª GALE —>HORA HASTA LAS 11:40\n2.ª GALE —>HORA HASTA LAS 11:45\n\n📲 Haz clic para abrir el broker\n🙋‍♂️ ¿Aún no sabes cómo operar? Haz clic aquí",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 37,
+    "name": "Signal Template (Msg #10766) — 2026-08-23",
+    "pattern_syntax": "🟢 SEÑAL GRATUITA 🟢\n\n• Huso Horario: $(timezone)\n\n• $(symbol) ($(otc)) • $(action) $(dismiss) • $(entry_time)\n• Caducidad en $(dismiss) $(dismiss) ($(period))\n• Hacer 2 reentradas si se pierde\n\n➡️Haz clic aquí y abre el broker\n➡️ No sabes operar? Haz clic aquí",
+    "example_text": "🟢 SEÑAL GRATUITA 🟢\n\n• Huso Horario: UTC-3\n\n• USD/COP (OTC) • ABAJO 🔴 • 19:00\n• Caducidad en 5 minutos (M5)\n• Hacer 2 reentradas si se pierde\n\n➡️Haz clic aquí y abre el broker\n➡️ No sabes operar? Haz clic aquí",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 38,
+    "name": "Signal Template (Msg #10768) — 2026-08-23",
+    "pattern_syntax": "📊 [ESTRATEGIA 8]\n\n🪙 $(symbol)\n🔴 $(action)\n⏳ $(period_digit)$(period_name)\n💰 $(entry_price)\n📈 RSI: 70\n💪 ADX: 29\n❌ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "example_text": "📊 [ESTRATEGIA 8]\n\n🪙 KSMUSDT\n🔴 SHORT\n⏳ 5min\n💰 3.804\n📈 RSI: 70\n💪 ADX: 29\n❌ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 39,
+    "name": "Signal Template (Msg #10489) — 2026-08-23",
+    "pattern_syntax": "💎 JOTA TRADER 🇧🇷 💎\n\n• $(symbol) \n• $(entry_time)\n• $(action) \n• $(period)\n• MAXIMO $(gale) GALE",
+    "example_text": "💎 JOTA TRADER 🇧🇷 💎\n\n• GBPJPY \n• 12:50\n• VENDA \n• M5\n• MAXIMO 1 GALE",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 40,
+    "name": "Signal Template (Msg #10764) — 2026-08-23",
+    "pattern_syntax": "📊 Divisa: $(symbol)\n⏳ EXPIRACIÓN: $(period)\n⏱️ ENTRADA: $(entry_time)\n$(dismiss) $(dismiss) / $(action)\n\n🚦 Tend: $(action)\n📈 Forecast: $(dismiss)%\n💸 Payout: $(dismiss)%\n\n📲 Link de registro Quotex \nRecarga con 50% más Código: TheKing50",
+    "example_text": "📊 Divisa: EURCAD-OTC\n⏳ EXPIRACIÓN: M1\n⏱️ ENTRADA: 18:48:00\n🔴 ABAJO / PUT\n\n🚦 Tend: Buy\n📈 Forecast: 92.85%\n💸 Payout: 90.0%\n\n📲 Link de registro Quotex \nRecarga con 50% más Código: TheKing50",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 41,
+    "name": "Signal Template (Msg #10770) — 2026-08-23",
+    "pattern_syntax": "📊 Currency: $(symbol)\n⏳ EXPIRATION: $(period)\n⏱️ ENTRY: $(entry_time)\n$(dismiss) $(dismiss) / $(action)\n\n🚦 Trend: $(action)\n📈 Bkt: $(dismiss)\n💸 Payout: $(dismiss)% \n\n📲 Quotex registration link \nRecharge with 50% more Code: TheKing50",
+    "example_text": "📊 Currency: BRLUSD-OTC\n⏳ EXPIRATION: M5\n⏱️ ENTRY: 19:05:00\n🟢 UP / CALL\n\n🚦 Trend: buy\n📈 Bkt: 64.7\n💸 Payout: 90.0% \n\n📲 Quotex registration link \nRecharge with 50% more Code: TheKing50",
+    "template_type": "binary",
+    "is_active": 0
+  },
+  {
+    "id": 227,
+    "name": "Signal Template (Msg #10546) — 2026-08-19",
+    "pattern_syntax": "✅ ENTRY CONFIRMED ✅\n🌎 COIN: $(symbol)\n⏳ EXPIRATION: $(period)\n📊 DIRECTION: $(action)\n⏰ TIME: $(entry_time)\n\nREGISTER HERE",
+    "example_text": "✅ ENTRY CONFIRMED ✅\n🌎 COIN: EUR/HUF OTC\n⏳ EXPIRATION: M1\n📊 DIRECTION: VENDA\n⏰ TIME: 14:09\n\nREGISTER HERE",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 232,
+    "name": "Signal Template (Msg #10548) — 2026-08-19",
+    "pattern_syntax": "📊 [ESTRATEGIA 8 💵]\n\n🪙 $(symbol)\n🔴 $(action)\n⏳ $(period_digit)$(period_name)\n💰 $(entry_price)\n📈 RSI: 73\n💪 ADX: 26\n❌ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "example_text": "📊 [ESTRATEGIA 8 💵]\n\n🪙 EURGBP\n🔴 SHORT\n⏳ 5min\n💰 0.85573\n📈 RSI: 73\n💪 ADX: 26\n❌ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 245,
+    "name": "Signal Template (Msg #8082) — 2026-08-22",
+    "pattern_syntax": "$(action) TRADE $(symbol) \n\n$(entry_range) -$(entry_range)\n\n📍Stop Loss: $(stoploss)\n\nTarget: $(profit_price) \n\nThis is not financial advice. This is a personal trade idea shared for educational and informational purposes only.",
+    "example_text": "BUY TRADE XAU/USD \n\n4086.0 -4089.0\n\n📍Stop Loss: 4073.0\n\nTarget: open \n\nThis is not financial advice. This is a personal trade idea shared for educational and informational purposes only.",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 252,
+    "name": "Signal Template (Msg #10633) — 2026-08-22",
+    "pattern_syntax": "🕯 #$(symbol) $(action) $(entry_price)\n\nTP $(profit_price)\n\n🔴 SL_$(stoploss)",
+    "example_text": "🕯 #XAUUSD SELL 4534\n\nTP 4530\n\n🔴 SL_4546",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 253,
+    "name": "Signal Template (Msg #8281) — 2026-08-22",
+    "pattern_syntax": "🔔  $(symbol)  🎯| $(dismiss) $(action) |  $(entry_price)\n    ⛔️SL  $(stoploss)\n    ✅ TP$(dismiss)  $(profit_price)",
+    "example_text": "🔔  GOLD  🎯| 🔴 SELL |  4103.50\n    ⛔️SL  4109.50\n    ✅ TP1  4101.50",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 258,
+    "name": "Signal Template (Msg #7461) — 2026-08-22",
+    "pattern_syntax": "💥XAUUSD $(symbol) $(action)  $(entry_price)💯💯\n\n  🔽TP.$(dismiss). $(profit_price)\n\n❌SL.TP. $(stoploss)",
+    "example_text": "💥XAUUSD NOW SELL  4095💯💯\n\n  🔽TP.1. 4090\n\n❌SL.TP. 4103",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 265,
+    "name": "Signal Template (Msg #10700) — 2026-08-23",
+    "pattern_syntax": "📊 [ESTRATEGIA 8 💵]\n\n🪙 $(symbol)\n🟢 $(action)\n⏳ $(period_digit)$(period_name)\n💰 $(entry_price)\n📉 RSI: 25\n💪 ADX: 35\n✅ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "example_text": "📊 [ESTRATEGIA 8 💵]\n\n🪙 GBPJPY\n🟢 LONG\n⏳ 5min\n💰 216.814\n📉 RSI: 25\n💪 ADX: 35\n✅ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 266,
+    "name": "Signal Template (Msg #10655) — 2026-08-23",
+    "pattern_syntax": "📊 [ESTRATEGIA 8]\n\n🪙 $(symbol)\n🔴 $(action)\n⏳ $(period_digit)$(period_name)\n💰 $(entry_price)\n📈 RSI: 74\n💪 ADX: 25\n❌ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "example_text": "📊 [ESTRATEGIA 8]\n\n🪙 KNCUSDT\n🔴 SHORT\n⏳ 5min\n💰 0.1072\n📈 RSI: 74\n💪 ADX: 25\n❌ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 267,
+    "name": "Signal Template (Msg #10536) — 2026-08-23",
+    "pattern_syntax": "🛰 POCKET OPTION M1\n\n💷 $(symbol)\n💎 $(period)\n⌚️ $(entry_time)\n🔽 $(action)",
+    "example_text": "🛰 POCKET OPTION M1\n\n💷 EURUSD-OTC\n💎 M1\n⌚️ 14:07:00\n🔽 put",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 268,
+    "name": "Signal Template (Msg #10662) — 2026-08-23",
+    "pattern_syntax": "This is not financial advice. Use appropriate risk management if you're going to trade. \n\nDirection  $(action) \n\nCurrency: $(symbol)\nENTRY : $(entry_range)\n🤑TP $(dismiss): $(profit_price)\n🔥LEAVE OPEN:\n\n🛑 SL:  $(stoploss)",
+    "example_text": "This is not financial advice. Use appropriate risk management if you're going to trade. \n\nDirection  BUY \n\nCurrency: XAUUSD\nENTRY : 4525-4520\n🤑TP 1: 4527\n🔥LEAVE OPEN:\n\n🛑 SL:  4519",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 269,
+    "name": "Signal Template (Msg #7825) — 2026-08-23",
+    "pattern_syntax": "$(action) $(symbol) @$(entry_range)\n\n$(dismiss) :$(stoploss)\n\nTp $(dismiss): $(profit_price)\n\nEnter Slowly-Layer with proper money management\n\nDo not rush your entries",
+    "example_text": "Buy Gold @4101.5-4091.5\n\nSl :4087.5\n\nTp 1: 4105.5\n\nEnter Slowly-Layer with proper money management\n\nDo not rush your entries",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 270,
+    "name": "Signal Template (Msg #5823) — 2026-08-23",
+    "pattern_syntax": "🕯 #$(symbol) $(action) $(entry_price)\n\nTP $(profit_price)\n\n🔴 SL_$(stoploss)",
+    "example_text": "🕯 #XAUUSD BUY 4040\n\nTP 4044\n\n🔴 SL_4026",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 271,
+    "name": "Signal Template (Msg #8281) — 2026-08-23",
+    "pattern_syntax": "🔔  $(symbol)  🎯| $(dismiss) $(action) |  $(entry_price)\n    ⛔️$(dismiss)  $(stoploss)\n    ✅ TP $(dismiss)  $(profit_price)",
+    "example_text": "🔔  GOLD  🎯| 🔴 SELL |  4103.50\n    ⛔️SL  4109.50\n    ✅ TP 1  4101.50",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 272,
+    "name": "Signal Template (Msg #4778) — 2026-08-23",
+    "pattern_syntax": "🚨 SEÑAL POR ZONAS 🚨\n\n🕒 Temporalidad: $(period)\n📍 Divisa: $(symbol)\n📊 Tipo de acción: $(action) $(dismiss)\n⏰ Zona clave: $(entry_time)-$(dismiss) ($(timezone))\n🧠 Análisis: Rechazo en resistencia con mechas superiores largas y presión vendedora.\n\n🤖 Más señales por zonas en O.D.A clic aquí\n\n✍️ RESUMEN\n$(dismiss)/$(dismiss)/$(dismiss)-$(dismiss)/$(dismiss)\n(Elige el Mejor $(period_name) entre los dos | MAX 1 GALE Opcional)",
+    "example_text": "🚨 SEÑAL POR ZONAS 🚨\n\n🕒 Temporalidad: M1\n📍 Divisa: EURJPY\n📊 Tipo de acción: VENTA 🔴\n⏰ Zona clave: 11:04-11:05 (UTC-5)\n🧠 Análisis: Rechazo en resistencia con mechas superiores largas y presión vendedora.\n\n🤖 Más señales por zonas en O.D.A clic aquí\n\n✍️ RESUMEN\nM1/EURJPY/11:04-11:05/PUT\n(Elige el Mejor Minuto entre los dos | MAX 1 GALE Opcional)",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 273,
+    "name": "Signal Template (Msg #2968) — 2026-08-23",
+    "pattern_syntax": "• SEÑALES EN VIVO SIN MARTINGALAS \n\n$(symbol)\n$(entry_time)\n$(action)\n$(period)\n",
+    "example_text": "• SEÑALES EN VIVO SIN MARTINGALAS \n\nEURUSD\n11:15\nCALL\nM1\n",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 274,
+    "name": "Signal Template (Msg #7461) — 2026-08-23",
+    "pattern_syntax": "💥XAUUSD $(symbol) $(action)  $(entry_price)💯💯\n\n  🔽TP.$(dismiss). $(profit_price)\n\n❌SL.TP. $(stoploss)",
+    "example_text": "💥XAUUSD NOW SELL  4095💯💯\n\n  🔽TP.1. 4090\n\n❌SL.TP. 4103",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 275,
+    "name": "Signal Template (Msg #10610) — 2026-08-23",
+    "pattern_syntax": "$(symbol) $(action) \n\nENTRY $(entry_range)\nSL $(stoploss)\nTP $(profit_price)",
+    "example_text": "XAUUSD BUY \n\nENTRY 4483.7-4473.7\nSL 4468.7\nTP 4487.7",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 276,
+    "name": "Signal Template (Msg #8357) — 2026-08-23",
+    "pattern_syntax": "$(symbol) $(action) \n\nENTRY @  $(entry_price)\nSL:   $(stoploss)\n\nTP$(dismiss):   $(profit_price)\n",
+    "example_text": "AUDCAD SELL \n\nENTRY @  0.98768\nSL:   0.98996\n\nTP1:   0.98556",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 277,
+    "name": "Signal Template (Msg #7756) — 2026-08-23",
+    "pattern_syntax": "$(symbol) $(action) now @$(entry_price)\n\nSL:$(stoploss)\n\nTp$(dismiss)-$(profit_price)",
+    "example_text": "Gold buy now @4102\n\nSL:4001\n\nTp1-4106",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 278,
+    "name": "Signal Template (Msg #8322) — 2026-08-23",
+    "pattern_syntax": "$(symbol) $(action) @ $(entry_price)\n\nTP: $(profit_price) (scalper) \nSL: $(stoploss)\n\n▪️Use money management 2-3%",
+    "example_text": "GBPJPY BUY @ 217.80\n\nTP: 218.00 (scalper) \nSL: 217.60\n\n▪️Use money management 2-3%",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 279,
+    "name": "Signal Template (Msg #2996) — 2026-08-23",
+    "pattern_syntax": "💎SEÑALES EN VIVO - OTC💎\n\n⏰ Zona Horaria: $(timezone) \n\n• $(period) $(symbol)\n• 🔽 $(action)\n• $(entry_time)\n• $(dismiss): $(dismiss) $(dismiss) \n• Recupera hasta 1 gale\n\n👍 Haz clic aquí para abrir el broker",
+    "example_text": "💎SEÑALES EN VIVO - OTC💎\n\n⏰ Zona Horaria: UTC-6 \n\n• M5 AUDCHF-OTC\n• 🔽 PUT\n• 09:50\n• M5: 5 Minutos \n• Recupera hasta 1 gale\n\n👍 Haz clic aquí para abrir el broker",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 280,
+    "name": "Signal Template (Msg #4716) — 2026-08-23",
+    "pattern_syntax": "📊 SEÑAL GRATIS 📊\n⏰ HORARIO: $(timezone) 🇺🇾🇦🇷🇧🇷\n\n• Punto de entrada: $(entry_price)\n• Divisa: $(symbol) 🇺🇸🇨🇦\n• Dirección: $(action) 🟩\n• Expiración: $(period_digit) $(period_name)\n\n⚠️Importante: Una vez tocado en el punto hacer la entrada en la siguiente vela\n👨🏽‍💻 SEÑAL ANALIZADA EN VIVO - SIN MARTINGALE",
+    "example_text": "📊 SEÑAL GRATIS 📊\n⏰ HORARIO: UTC-3 🇺🇾🇦🇷🇧🇷\n\n• Punto de entrada: 1.40940\n• Divisa: USDCAD 🇺🇸🇨🇦\n• Dirección: CALL 🟩\n• Expiración: 5 minutos\n\n⚠️Importante: Una vez tocado en el punto hacer la entrada en la siguiente vela\n👨🏽‍💻 SEÑAL ANALIZADA EN VIVO - SIN MARTINGALE",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 281,
+    "name": "Signal Template (Msg #1835) — 2026-08-23",
+    "pattern_syntax": "#$(symbol) INSTANT- $(action)📈\n\nENTRY: $(entry_price)\n\nSTOP LOSS: $(stoploss)\n\nTP $(dismiss): $(profit_price)",
+    "example_text": "#XAUUSD INSTANT- BUY📈\n\nENTRY: 4038\n\nSTOP LOSS: 4028\n\nTP 1: 4041",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 282,
+    "name": "Signal Template (Msg #10725) — 2026-08-23",
+    "pattern_syntax": "🪙 $(symbol)\n🔴 $(action)\n⏳ $(period_digit)$(period_name)\n💰 $(entry_price)\n🕯️ $(entry_price)% \n📈 RSI: 80\n\n😢 ¡IMPORTANTE! Los bots dejarán de funcionar el 09/10/2027. Obtén el código de los bots, ¡puedes usar la IA para personalizar el tuyo! Precio simbólico de 💰25$. Más info ➡️ AQUÍ ⬅️",
+    "example_text": "🪙 AAVEUSDT.P\n🔴 SHORT\n⏳ 3min\n💰 143.65\n🕯️ 1.65% \n📈 RSI: 80\n\n😢 ¡IMPORTANTE! Los bots dejarán de funcionar el 09/10/2027. Obtén el código de los bots, ¡puedes usar la IA para personalizar el tuyo! Precio simbólico de 💰25$. Más info ➡️ AQUÍ ⬅️",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 283,
+    "name": "Signal Template (Msg #6386) — 2026-08-23",
+    "pattern_syntax": "#$(symbol) 📉 $(action)\n\nRango de entrada: $(entry_price)$ - $(entry_price)$\nTP: $(profit_price)$ - $(profit_price)$\nSL: $(stoploss)$\n\nRiesgo: 1%\n\nLa moneda barrió la liquidez superior, tras lo cual rompió la estructura alcista y quebró la línea de tendencia. Ahora el precio ha testeado la zona de oferta y está mostrando reacción. Por debajo hay grandes pools de liquidez. Espero un movimiento a la baja.",
+    "example_text": "#INJ/USDT 📉 SHORT\n\nRango de entrada: 5.244$ - 5.096$\nTP: 4.936$ - 4.729$\nSL: 5.531$\n\nRiesgo: 1%\n\nLa moneda barrió la liquidez superior, tras lo cual rompió la estructura alcista y quebró la línea de tendencia. Ahora el precio ha testeado la zona de oferta y está mostrando reacción. Por debajo hay grandes pools de liquidez. Espero un movimiento a la baja.",
+    "template_type": "market",
+    "is_active": 1
+  },
+  {
+    "id": 284,
+    "name": "Signal Template (Msg #10762) — 2026-08-23",
+    "pattern_syntax": "👑 The King 1 Minuto VIP Pocket Option 👑\n\n💷 $(symbol)\n💎 $(period)\n⌚️ $(entry_time)\n🔼 $(action)\n\n \n\nLink de registro Pocket Option",
+    "example_text": "👑 The King 1 Minuto VIP Pocket Option 👑\n\n💷 CADCHF-OTC\n💎 M1\n⌚️ 18:43:00\n🔼 call\n\n \n\nLink de registro Pocket Option",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 287,
+    "name": "Signal Template (Msg #10705) — 2026-08-23",
+    "pattern_syntax": "🚥 SEÑALE LIBRE 🚥\n⏰ Huso horario: $(timezone)\n\n• $(symbol) - $(action) $(dismiss) - $(entry_time)\n• Caducidad: $(dismiss) $(dismiss) ($(period))\n• Si pierdes, recupera hasta 1 Gale.\n\n📲 Click para abrir el broker\n➡️ No sabes cómo operar? Haga clic aquí",
+    "example_text": "🚥 SEÑALE LIBRE 🚥\n⏰ Huso horario: UTC-3\n\n• AUDCAD-OTC - PUT 🟥 - 18:05\n• Caducidad: 5 minutos (M5)\n• Si pierdes, recupera hasta 1 Gale.\n\n📲 Click para abrir el broker\n➡️ No sabes cómo operar? Haga clic aquí",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 288,
+    "name": "Signal Template (Msg #10692) — 2026-08-23",
+    "pattern_syntax": "🚥 SEÑALE LIBRE 🚥\n⏰ Huso horario: $(timezone)\n\n• $(symbol) - $(action) $(dismiss) - $(entry_time)\n• Caducidad: $(dismiss) $(dismiss) ($(period))\n• Si pierdes, recupera hasta 1 Gale.\n\n📲 Click para abrir el broker\n➡️ No sabes cómo operar? Haga clic aquí",
+    "example_text": "🚥 SEÑALE LIBRE 🚥\n⏰ Huso horario: UTC-3\n\n• GBPUSD-OTC - PUT 🟥 - 20:05\n• Caducidad: 5 minutos (M5)\n• Si pierdes, recupera hasta 1 Gale.\n\n📲 Click para abrir el broker\n➡️ No sabes cómo operar? Haga clic aquí",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 289,
+    "name": "Signal Template (Msg #10747) — 2026-08-23",
+    "pattern_syntax": "💳 $(symbol)\n🔥 $(period)\n⌛ $(entry_time)\n🔼 $(action)\n\n🚦 Tend: $(action)\n📈 Forecast: $(dismiss)%\n💸 Payout: $(dismiss)%\n\nBEST SIGNALS\nhttps://quotex.io/sign-up/?lid=83934",
+    "example_text": "💳 NZDCHF-OTC\n🔥 M1\n⌛ 18:31:00\n🔼 call\n\n🚦 Tend: Buy\n📈 Forecast: 81.55%\n💸 Payout: 85.0%\n\nBEST SIGNALS\nhttps://quotex.io/sign-up/?lid=83934",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 290,
+    "name": "Signal Template (Msg #10741) — 2026-08-23",
+    "pattern_syntax": "✅ ENTRY CONFIRMED ✅\n\n🌎 coin: $(symbol) $(otc)\n⏳ Expiration: $(period)\n📊 Direction: $(dismiss) $(action)\n⏰ time: $(entry_time)\n\n👉 Use up to two Martingale steps in the event of a loss!\n1º GALE: ENDS IN: 18:28h\n2º GALE: ENDS IN: 18:29h\n\n📱 REGISTER HERE",
+    "example_text": "✅ ENTRY CONFIRMED ✅\n\n🌎 coin: EUR/JPY OTC\n⏳ Expiration: M1\n📊 Direction: 🔴 SELL\n⏰ time: 18:27\n\n👉 Use up to two Martingale steps in the event of a loss!\n1º GALE: ENDS IN: 18:28h\n2º GALE: ENDS IN: 18:29h\n\n📱 REGISTER HERE",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 291,
+    "name": "Signal Template (Msg #10701) — 2026-08-23",
+    "pattern_syntax": "✅ ENTRY CONFIRMED ✅\n\n🌎 coin: $(symbol) $(otc)\n⏳ Expiration: $(period)\n📊 Direction: $(dismiss) $(action)\n⏰ time: $(entry_time)\n\n👉 Use up to two Martingale steps in the event of a loss!\n1º GALE: ENDS IN: 17:46h\n2º GALE: ENDS IN: 17:47h\n\n📱 REGISTER HERE",
+    "example_text": "✅ ENTRY CONFIRMED ✅\n\n🌎 coin: USD/COP OTC\n⏳ Expiration: M1\n📊 Direction: 🟢 BUY\n⏰ time: 17:45\n\n👉 Use up to two Martingale steps in the event of a loss!\n1º GALE: ENDS IN: 17:46h\n2º GALE: ENDS IN: 17:47h\n\n📱 REGISTER HERE",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 292,
+    "name": "Signal Template (Msg #10576) — 2026-08-23",
+    "pattern_syntax": "💰 Vencimiento en $(period_digit) $(period_name)\n$(symbol);$(entry_time);$(action) $(dismiss)\n\n🕐HORA HASTA LAS $(dismiss)\n\n1.ª GALE —>HORA HASTA LAS 11:40\n2.ª GALE —>HORA HASTA LAS 11:45\n\n📲 Haz clic para abrir el broker\n🙋‍♂️ ¿Aún no sabes cómo operar? Haz clic aquí",
+    "example_text": "💰 Vencimiento en 5 minutos\nUSD/BDT;11:30;PUT 🟥\n\n🕐HORA HASTA LAS 11:35\n\n1.ª GALE —>HORA HASTA LAS 11:40\n2.ª GALE —>HORA HASTA LAS 11:45\n\n📲 Haz clic para abrir el broker\n🙋‍♂️ ¿Aún no sabes cómo operar? Haz clic aquí",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 293,
+    "name": "Signal Template (Msg #10766) — 2026-08-23",
+    "pattern_syntax": "🟢 SEÑAL GRATUITA 🟢\n\n• Huso Horario: $(timezone)\n\n• $(symbol) ($(otc)) • $(action) $(dismiss) • $(entry_time)\n• Caducidad en $(dismiss) $(dismiss) ($(period))\n• Hacer 2 reentradas si se pierde\n\n➡️Haz clic aquí y abre el broker\n➡️ No sabes operar? Haz clic aquí",
+    "example_text": "🟢 SEÑAL GRATUITA 🟢\n\n• Huso Horario: UTC-3\n\n• USD/COP (OTC) • ABAJO 🔴 • 19:00\n• Caducidad en 5 minutos (M5)\n• Hacer 2 reentradas si se pierde\n\n➡️Haz clic aquí y abre el broker\n➡️ No sabes operar? Haz clic aquí",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 294,
+    "name": "Signal Template (Msg #10768) — 2026-08-23",
+    "pattern_syntax": "📊 [ESTRATEGIA 8]\n\n🪙 $(symbol)\n🔴 $(action)\n⏳ $(period_digit)$(period_name)\n💰 $(entry_price)\n📈 RSI: 70\n💪 ADX: 29\n❌ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "example_text": "📊 [ESTRATEGIA 8]\n\n🪙 KSMUSDT\n🔴 SHORT\n⏳ 5min\n💰 3.804\n📈 RSI: 70\n💪 ADX: 29\n❌ Stochastic\n\n😢 ¡IMPORTANTE! Todos los bots dejarán de funcionar definitivamente el 09/10/2027. Obtén el código de todos los bots, ¡puedes usar la IA para personalizar el tuyo propio! Más info en 🔮 @FavIndicatorsGroup 🔮",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 295,
+    "name": "Signal Template (Msg #10489) — 2026-08-23",
+    "pattern_syntax": "💎 JOTA TRADER 🇧🇷 💎\n\n• $(symbol) \n• $(entry_time)\n• $(action) \n• $(period)\n• MAXIMO $(gale) GALE",
+    "example_text": "💎 JOTA TRADER 🇧🇷 💎\n\n• GBPJPY \n• 12:50\n• VENDA \n• M5\n• MAXIMO 1 GALE",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 296,
+    "name": "Signal Template (Msg #10764) — 2026-08-23",
+    "pattern_syntax": "📊 Divisa: $(symbol)\n⏳ EXPIRACIÓN: $(period)\n⏱️ ENTRADA: $(entry_time)\n$(dismiss) $(dismiss) / $(action)\n\n🚦 Tend: $(action)\n📈 Forecast: $(dismiss)%\n💸 Payout: $(dismiss)%\n\n📲 Link de registro Quotex \nRecarga con 50% más Código: TheKing50",
+    "example_text": "📊 Divisa: EURCAD-OTC\n⏳ EXPIRACIÓN: M1\n⏱️ ENTRADA: 18:48:00\n🔴 ABAJO / PUT\n\n🚦 Tend: Buy\n📈 Forecast: 92.85%\n💸 Payout: 90.0%\n\n📲 Link de registro Quotex \nRecarga con 50% más Código: TheKing50",
+    "template_type": "binary",
+    "is_active": 1
+  },
+  {
+    "id": 297,
+    "name": "Signal Template (Msg #10770) — 2026-08-23",
+    "pattern_syntax": "📊 Currency: $(symbol)\n⏳ EXPIRATION: $(period)\n⏱️ ENTRY: $(entry_time)\n$(dismiss) $(dismiss) / $(action)\n\n🚦 Trend: $(action)\n📈 Bkt: $(dismiss)\n💸 Payout: $(dismiss)% \n\n📲 Quotex registration link \nRecharge with 50% more Code: TheKing50",
+    "example_text": "📊 Currency: BRLUSD-OTC\n⏳ EXPIRATION: M5\n⏱️ ENTRY: 19:05:00\n🟢 UP / CALL\n\n🚦 Trend: buy\n📈 Bkt: 64.7\n💸 Payout: 90.0% \n\n📲 Quotex registration link \nRecharge with 50% more Code: TheKing50",
+    "template_type": "binary",
+    "is_active": 1
+  }
+]

@@ -1338,8 +1338,10 @@ static TIMEZONE_DIGIT_VAL: LazyLock<Patterns> = LazyLock::new (|| Patterns::new(
 static TIMEFRAME_PERIOD_NAME_VAL: LazyLock<Patterns> = LazyLock::new (|| Patterns::new("timeframe_period_parser_name_val","(<min>[uú]<t>[oe]s?)"),);
 static GALE_ORDINAL: LazyLock<Patterns> = LazyLock::new (|| Patterns::new("gale_digit_val","\\d+[ºª]"),);
 static TOKEN_NAME: LazyLock<Patterns> = LazyLock::new (|| Patterns::new("token_name","<$(>\\w+\\)"),);
+static TOKEN_OTC: LazyLock<Patterns> = LazyLock::new (|| Patterns::new("token_name","\\(?<$(otc)>\\)?"),);
 // general and commons patterns
 static WORD: LazyLock<Patterns> = LazyLock::new (|| Patterns::new("word","\\w+"),);
+static OTC_WORD: LazyLock<Patterns> = LazyLock::new (|| Patterns::new("otc","\\(?< - >?<otc>\\)?"),);
 static WHITE_SPACE: LazyLock<Patterns> = LazyLock::new (|| Patterns::new("whitespace"," "),);
 static NEW_LINE: LazyLock<Patterns> = LazyLock::new (|| Patterns::new("newline","\n"),);
 static PUNCTUATION: LazyLock<Patterns> = LazyLock::new (|| Patterns::new("punctuation","\\P"),);

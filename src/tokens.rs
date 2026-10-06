@@ -1112,6 +1112,10 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
     // Objeto Signal temporal para ir construyendo la señal actual
     let mut current_signal: Signal = Signal::default();
 
+    // Contadores para el ratio de acierto
+    let mut total_template_tokens = 0usize;
+    let mut matched_tokens = 0usize;
+
     // Coleccionar las líneas del texto modificado/plantilla
     let mod_lines: Vec<&str> = modified_text.lines().collect();
     if mod_lines.is_empty() {
@@ -1156,14 +1160,19 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                         let currentsym = get_symbol_from_text(orig_val, &get_nodes("symbols"), &get_nodes("checkers"));
                         let end_range = start + orig_len;
                         if let Some(sym) = currentsym {
+                            total_template_tokens += 1;
+                            matched_tokens += 1;
                             if current_signal.symbol.is_none() {
                                 current_signal.symbol = Some(sym);
+                                // agrega valor al ratio
                             }
                             if original_line.is_char_boundary(end_range) {
                                 original_line.replace_range(start..end_range, "");
                                 modified_line = modified_line.replacen("$(symbol)", "", 1);
                             }
                         } else if !orig_val.is_empty() && current_signal.symbol.is_none() {
+                            total_template_tokens += 1;
+                            matched_tokens += 1;
                             current_signal.symbol = Some(Symbol {
                                 symbol_type: SymbolType::Plain(orig_val.to_string()),
                                 symbol_class: None,
@@ -1180,8 +1189,12 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
 
         // Iterar en paralelo sobre los tokens de la línea original y la línea plantilla
         for (original_token, modified_token) in original_line.zip_tokens(&modified_line) {
+            // print!("original_token: {:?} {:?} ", original_token, modified_token);
+            total_template_tokens += 1;
             // Si el token modificado es idéntico al original, no contiene una plantilla `$(...)`
             if modified_token.1 == original_token.1 {
+                // agrega valor al ratio
+                matched_tokens += 1;
                 continue
             }
             // Buscar el inicio de la variable de plantilla "$("
@@ -1210,6 +1223,8 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                         if let SymbolType::Plain(_) = sym.symbol_type {
                             if current_signal.symbol.is_none() {
                                 current_signal.symbol = Some(sym.clone());
+                                // agrega valor al ratio
+                                matched_tokens += 1;
                             }
                             continue
                         }
@@ -1222,6 +1237,8 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                     }
                     if let Some(sym) = currentsym {
                         current_signal.symbol = Some(sym);
+                        // agrega valor al ratio
+                        matched_tokens += 1;
                     } else if !orig_val.is_empty() {
                         let clean_val = orig_val.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '-');
                         if clean_val.len() >= 3 && clean_val.chars().any(|c| c.is_alphabetic()) {
@@ -1229,6 +1246,8 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                                 symbol_type: SymbolType::Plain(orig_val.to_string()),
                                 symbol_class: None,
                             });
+                            // agrega valor al ratio
+                            matched_tokens += 1;
                         }
                     }
                 },
@@ -1242,8 +1261,12 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                             symbol_type: SymbolType::Plain(orig_val.to_string()),
                             symbol_class: Some(SymbolClass::Otc),
                         });
+                        // agrega valor al ratio
+                        matched_tokens += 1;
                     } else if let Some(ref mut sym) = current_signal.symbol {
                         sym.symbol_class = Some(SymbolClass::Otc);
+                        // agrega valor al ratio
+                        matched_tokens += 1;
                     }
                 },
                 "action" => {
@@ -1251,8 +1274,10 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                     let (flags, _) = get_flags_and_token_class(orig_val, original_token.0, &get_nodes("checkers"));
                     let detected_action = if flags.contains(TokenFlags::VALUE_UP) {
                         Some(true) // Operación de Compra / Call / Alza
+                        // agrega valor al ratio
                     } else if flags.contains(TokenFlags::VALUE_DOWN) {
                         Some(false) // Operación de Venta / Put / Baja
+                        // agrega valor al ratio
                     } else {
                         None
                     };
@@ -1260,10 +1285,15 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                     if let Some(act) = detected_action {
                         if current_signal.action.is_none() {
                             current_signal.action = Some(act);
+                            // agrega valor al ratio
+                            matched_tokens += 1;
                         } else if current_signal.action == Some(act) {
                             // Acción confirmada dentro de la misma señal (ej. Tend: Buy tras CALL)
+                            matched_tokens += 1;
                         } else if current_signal.symbol.is_none() {
                             current_signal.action = Some(act);
+                            // agrega valor al ratio
+                            matched_tokens += 1;
                         }
                     }
                 },
@@ -1275,6 +1305,8 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                     }
                     // Asignar el período o temporalidad (ej. M5, H1, M15)
                     current_signal.target = Some(Target::PeriodTime(orig_val.to_string()));
+                    // agrega valor al ratio
+                    matched_tokens += 1;
                 }
                 "period_digit" | "period_name" => {
                     // Concatenar dígitos o sufijos al valor del período de tiempo configurado
@@ -1282,8 +1314,12 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                         if pt.chars().all(|c| c.is_numeric()) {
                             let prefix = orig_val.chars().next().map(|c| c.to_string().to_uppercase()).unwrap_or_default();
                             *pt = prefix + pt;
+                            // agrega valor al ratio
+                            matched_tokens += 1;
                         } else if pt.chars().all(|c| c.is_alphabetic()) {
                             pt.push_str(&orig_val);
+                            // agrega valor al ratio
+                            matched_tokens += 1;
                         }
                     } else {
                         let val = if orig_val.chars().all(|c| c.is_numeric()) {
@@ -1294,12 +1330,16 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                             orig_val.to_string()
                         };
                         current_signal.target = Some(Target::PeriodTime(val));
+                        // agrega valor al ratio
+                        matched_tokens += 1;
                     }
                 },
                 "timezone" => {
                     // Remover espacios y agregar la zona horaria a la señal
                     let tz = orig_val.replace(" ", "");
                     current_signal.add_time_zone(tz);
+                    // agrega valor al ratio
+                    matched_tokens += 1;
                 },
                 "entry_time" | "time_entry" => {
                     // Si la señal previa ya cuenta con suficiente información, guardarla y reiniciar
@@ -1313,6 +1353,7 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                         match parts.as_slice() {
                             [h, m, s] => {
                                 if let (Ok(h), Ok(m), Ok(s)) = (h.parse::<u32>(), m.parse::<u32>(), s.parse::<u32>()) {
+                                    // agrega valor al ratio
                                     format!("{:02}:{:02}:{:02}", h, m, s)
                                 } else {
                                     orig_val.to_string()
@@ -1320,6 +1361,7 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                             },
                             [h, m] => {
                                 if let (Ok(h), Ok(m)) = (h.parse::<u32>(), m.parse::<u32>()) {
+                                    // agrega valor al ratio
                                     format!("{:02}:{:02}:00", h, m)
                                 } else {
                                     orig_val.to_string()
@@ -1339,6 +1381,10 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                     } else {
                         current_signal.entry = Some(Entry::TimeEntry(String::new(), time_str));
                     }
+                    // agrega valor al ratio
+                    if !orig_val.is_empty() {
+                        matched_tokens += 1;
+                    }
                 },
                 "entry_range" => {
                     // Parsear un rango de precios de entrada (ej: 1.1234-1.1250) o un precio individual
@@ -1349,6 +1395,8 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                         let p2 = range[1].parse::<f32>().unwrap_or(0.0);
                         if p1 > 0.0 && p2 > 0.0 {
                             current_signal.entry = Some(Entry::EntryRange(p1, p2));
+                            // agrega valor al ratio
+                            matched_tokens += 1;
                         }
                     } else if let Ok(price) = range_str.parse::<f32>() {
                         if price > 0.0 {
@@ -1357,6 +1405,8 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                             } else {
                                 current_signal.entry = Some(Entry::PriceEntry(price));
                             }
+                            // agrega valor al ratio
+                            matched_tokens += 1;
                         }
                     }
                 },
@@ -1366,25 +1416,46 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                     if price > 0.0 {
                         if let Some(Entry::PriceEntry(p1)) = current_signal.entry {
                             current_signal.entry = Some(Entry::EntryRange(p1, price));
+                            // agrega valor al ratio
+                            matched_tokens += 1;
                         } else if let Some(Entry::TimeEntry(ref tz, _)) = current_signal.entry {
                             current_signal.entry = Some(Entry::TimePrice(tz.clone(), price));
+                            // agrega valor al ratio
+                            matched_tokens += 1;
                         } else if current_signal.entry.is_none() {
                             current_signal.entry = Some(Entry::PriceEntry(price));
+                            // agrega valor al ratio
+                            matched_tokens += 1;
                         }
                     }
                 },
                 "profit_price" | "profit" => {
                     // Extraer precio de Take Profit (Toma de Ganancia) y agregarlo a la lista de objetivos
-                    let price = orig_val.replace(',', ".").parse::<f32>().unwrap_or(0.0);
-                    if price > 0.0 {
+                    if orig_val.to_lowercase() == "open" {
                         if let Some(Target::ProfitLoss(ref mut pt)) = current_signal.target {
-                            pt.profits.push(price);
+                            pt.open = true;
                         } else {
                             current_signal.target = Some(Target::ProfitLoss(PricesTarget {
-                                open: false,
-                                profits: vec![price],
+                                open: true,
+                                profits: vec![],
                                 stoploss: 0.0,
                             }));
+                        }
+                        matched_tokens += 1;
+                    } else {
+                        let price = orig_val.replace(',', ".").parse::<f32>().unwrap_or(0.0);
+                        if price > 0.0 {
+                            if let Some(Target::ProfitLoss(ref mut pt)) = current_signal.target {
+                                pt.profits.push(price);
+                            } else {
+                                current_signal.target = Some(Target::ProfitLoss(PricesTarget {
+                                    open: false,
+                                    profits: vec![price],
+                                    stoploss: 0.0,
+                                }));
+                            }
+                            // agrega valor al ratio
+                            matched_tokens += 1;
                         }
                     }
                 },
@@ -1401,26 +1472,43 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                                 stoploss: price,
                             }));
                         }
+                        // agrega valor al ratio
+                        matched_tokens += 1;
                     }
                 },
                 "gale" => {
                     // Parsear configuración de Martingala (Gale): número de gales, hora o 'NoGale'
+                    let mut matched_gale = false;
                     if let Ok(num) = orig_val.parse::<i8>() {
                         current_signal.gales.push(Gale::Number(num));
+                        matched_gale = true;
                     } else if orig_val.contains(':') {
                         current_signal.gales.push(Gale::TimeEntry(orig_val.to_string()));
+                        matched_gale = true;
                     } else if orig_val.to_lowercase().contains("no") || orig_val == "0" {
                         current_signal.gales.push(Gale::NoGale);
+                        matched_gale = true;
                     } else {
                         if let Some(digit_char) = orig_val.chars().find(|c| c.is_ascii_digit()) {
                             if let Some(digit) = digit_char.to_digit(10) {
                                 current_signal.gales.push(Gale::Number(digit as i8));
+                                matched_gale = true;
                             }
                         }
                     }
+                    if matched_gale {
+                        // agrega valor al ratio
+                        matched_tokens += 1;
+                    }
                 },
                 // Ignorar etiquetas que no representan propiedades directamente asignables aquí
-                "indicator" | "date" | "custom" | "dismiss" | "variable" | "_" | _ => {},
+                "indicator" | "date" | "custom" | "dismiss" | "variable" | "_" | _ => {
+                    // agraga valor al ratio
+                    if !orig_val.is_empty() {
+                        matched_tokens += 1;
+                    }
+                },
+                
             }
             labeled = label.to_string();
         }
@@ -1436,10 +1524,17 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
 
     // Retornar las señales extraídas o None si no se construyó ninguna
     if !signals.is_empty() {
-        Some(signals)
-    } else {
-        None
+        let ratio = if total_template_tokens > 0 {
+            (matched_tokens as f32 / total_template_tokens as f32) * 100.0
+        } else {
+            0.0
+        };
+        if ratio >= 98.0 {
+            return Some(signals);
+        }
     }
+    
+    None
 }
 
 // #[pyfunction]
@@ -1721,6 +1816,33 @@ mod tests {
     }
 
     #[test]
+    fn test_single_tp_and_dismiss_templates() {
+        // ID 23 test: Tp$(dismiss)-
+        let ex23 = "Gold buy now @4102\n\nSL:4001\n\nTp1-4106";
+        let pat23 = "$(symbol) $(action) now @$(entry_price)\n\nSL:$(stoploss)\n\nTp$(dismiss)-$(profit_price)";
+        let res23 = parse_template(ex23, pat23, None, None, None);
+        assert!(res23.is_some());
+
+        // ID 8 test: single TP and SL
+        let ex8 = "🕯 #XAUUSD SELL 4534\n\nTP 4530\n\n🔴 SL_4546";
+        let pat8 = "🕯 #$(symbol) $(action) $(entry_price)\n\nTP $(profit_price)\n\n🔴 SL_$(stoploss)";
+        let res8 = parse_template(ex8, pat8, None, None, None);
+        assert!(res8.is_some());
+
+        // ID 16 test: single TP
+        let ex16 = "🕯 #XAUUSD BUY 4040\n\nTP 4044\n\n🔴 SL_4026";
+        let pat16 = "🕯 #$(symbol) $(action) $(entry_price)\n\nTP $(profit_price)\n\n🔴 SL_$(stoploss)";
+        let res16 = parse_template(ex16, pat16, None, None, None);
+        assert!(res16.is_some());
+
+        // ID 10 test: TP.$(dismiss).
+        let ex10 = "💥XAUUSD NOW SELL\u{00a0} 4095💯💯\n\n\u{00a0} 🔽TP.1. 4090\n\n❌SL.TP. 4103";
+        let pat10 = "💥XAUUSD $(symbol) $(action)\u{00a0} $(entry_price)💯💯\n\n\u{00a0} 🔽TP.$(dismiss). $(profit_price)\n\n❌SL.TP. $(stoploss)";
+        let res10 = parse_template(ex10, pat10, None, None, None);
+        assert!(res10.is_some());
+    }
+
+    #[test]
     fn test_trade_promo_messages_return_none() {
         let promo_msg_7 = "50START \n🔺 Código 🔺\n➡️ Recargas 50$ Recibes 75$\n➡️ Recargas 100$ Recibes 150$\nMínimo de recarga 50$ USD\n⚠️ Para utilizar el cupón debes haberte registrado con nuestro Link\n✅ Aprende a crear tu cuenta aquí👇🏽👇🏽👇🏽\n🆘 https://t.me/registropocketoption 🆘\nRegístrese e ingrese al Canal VIP 👑 24 horas de análisis en vivo 📈";
         let pattern_284 = "👑 The King 1 Minuto VIP Pocket Option 👑\n\n💷 $(symbol)\n💎 $(period)\n⌚️ $(entry_time)\n🔼 $(action)\n\n \n\nLink de registro Pocket Option";
@@ -1733,5 +1855,65 @@ mod tests {
 
         let result_31 = parse_template(promo_msg_31, pattern_291, None, None, None);
         assert!(result_31.is_none(), "Promo message 31 without valid symbol/action must return None");
+    }
+
+    #[test]
+    fn test_template_with_otc_and_parentheses_otc() {
+        // Test template con $(otc)
+        let signal_otc = "EURUSD OTC\nCALL\n12:00:00\n";
+        let template_otc = "$(symbol) $(otc)\n$(action)\n$(entry_time)\n";
+        let result = parse_template(signal_otc, template_otc, None, None, None);
+        assert!(result.is_some(), "Expected template with $(otc) to match");
+        let signals = result.unwrap();
+        assert_eq!(signals.len(), 1);
+        assert_eq!(signals[0].action, Some(true));
+        assert_eq!(signals[0].symbol.as_ref().unwrap().symbol_class, Some(SymbolClass::Otc));
+
+        // Test template con ($(otc)) entre paréntesis
+        let signal_paren_otc = "EURUSD (OTC)\nCALL\n12:00:00\n";
+        let template_paren_otc = "$(symbol) ($(otc))\n$(action)\n$(entry_time)\n";
+        let result_paren = parse_template(signal_paren_otc, template_paren_otc, None, None, None);
+        assert!(result_paren.is_some(), "Expected template with ($(otc)) to match");
+        let signals_paren = result_paren.unwrap();
+        assert_eq!(signals_paren.len(), 1);
+        assert_eq!(signals_paren[0].action, Some(true));
+        assert_eq!(signals_paren[0].symbol.as_ref().unwrap().symbol_class, Some(SymbolClass::Otc));
+    }
+
+    #[test]
+    fn test_parse_template_against_database_examples() {
+        let dump_str = include_str!("../data/templates_test_dump.json");
+        let v: serde_json::Value = serde_json::from_str(dump_str).expect("Valid JSON");
+        let list = v.as_array().expect("Array");
+
+        let mut total_tested = 0;
+        let mut matched = 0;
+        let mut failures = Vec::new();
+
+        for item in list {
+            let id = item["id"].as_i64().unwrap();
+            let is_active = item["is_active"].as_i64().unwrap() == 1;
+            let name = item["name"].as_str().unwrap();
+            let pattern = item["pattern_syntax"].as_str().unwrap();
+            let example = item["example_text"].as_str().unwrap();
+
+            total_tested += 1;
+            let parsed = parse_template(example, pattern, None, None, None);
+            if let Some(sigs) = parsed {
+                matched += 1;
+                println!("ID {}: OK ({} signals) [{}]", id, sigs.len(), name);
+            } else {
+                failures.push((id, is_active, name.to_string()));
+                println!("ID {}: FAILED (is_active={}) [{}]", id, is_active, name);
+            }
+        }
+
+        println!("\n=== RESUMEN TEST BASE DE DATOS ===");
+        println!("Total testeados: {}", total_tested);
+        println!("Exitosos: {}", matched);
+        println!("Fallidos: {}", failures.len());
+        for (id, is_active, name) in &failures {
+            println!(" - Falló ID {}: {} (activo={})", id, name, is_active);
+        }
     }
 }
