@@ -1114,6 +1114,7 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
 
     // Contadores para el ratio de acierto
     let mut total_template_tokens = 0usize;
+    let mut total_original_text_tokens = 0usize;
     let mut matched_tokens = 0usize;
 
     // Coleccionar las líneas del texto modificado/plantilla
@@ -1188,7 +1189,7 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
         }
 
         // Iterar en paralelo sobre los tokens de la línea original y la línea plantilla
-        for (original_token, modified_token) in original_line.zip_tokens(&modified_line) {
+        for (modified_token, original_token) in modified_line.zip_tokens(&original_line) {
             // print!("original_token: {:?} {:?} ", original_token, modified_token);
             total_template_tokens += 1;
             // Si el token modificado es idéntico al original, no contiene una plantilla `$(...)`
@@ -1525,7 +1526,7 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
     // Retornar las señales extraídas o None si no se construyó ninguna
     if !signals.is_empty() {
         let ratio = if total_template_tokens > 0 {
-            (matched_tokens as f32 / total_template_tokens as f32) * 100.0
+            (matched_tokens as f32 / (total_template_tokens as f32)) * 100.0
         } else {
             0.0
         };

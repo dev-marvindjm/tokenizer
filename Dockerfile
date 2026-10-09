@@ -18,7 +18,7 @@ RUN cargo build --release
 # ==========================================
 # Stage 2: Final Runtime Application
 # ==========================================
-FROM python:3.12-slim-bookworm AS runner
+FROM python:3.12-slim AS runner
 
 WORKDIR /app
 

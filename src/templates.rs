@@ -158,20 +158,5 @@ pub fn match_template(text: &str, pattern: &str, template_name: Option<&str>) ->
         }
     }
 
-    // Fallback: if template matching was not strict, try parse_signal to see if structure is valid
-    if let Some(signals) = parse_signal(text, None, None) {
-        if let Some(first_sig) = signals.first() {
-            if first_sig.is_esencial() {
-                let is_binary = signals.is_binary();
-                return Some(ParsedSignal::from_signal(
-                    first_sig,
-                    is_binary,
-                    template_name.map(|s| s.to_string()),
-                    Some(signals.template.clone()),
-                ));
-            }
-        }
-    }
-
     None
 }

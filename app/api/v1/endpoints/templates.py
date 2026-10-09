@@ -289,17 +289,13 @@ async def match_template_endpoint(
                 processing_time_us=total_us,
             )
 
-    # Fallback entity extraction if no template matched
-    entities, dur_us = await rust_bridge.extract_entities_async(payload.text)
-    total_us += dur_us
-    has_sig = entities.get("has_signal", False)
-
+    # Return unmatched response strictly if no template matched
     return MatchTemplateResponse(
-        matched=has_sig,
+        matched=False,
         template_id=None,
         template_name=None,
-        matched_pattern=entities.get("template") if has_sig else None,
-        signal=entities.get("signals", [None])[0] if has_sig and entities.get("signals") else None,
+        matched_pattern=None,
+        signal=None,
         processing_time_us=total_us,
     )
 
