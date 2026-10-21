@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, tokenizer, templates, benchmarks
+from app.api.v1.endpoints import auth, tokenizer, templates, benchmarks, validator
 from app.core.config import settings
 
 api_router = APIRouter()
@@ -8,6 +8,7 @@ api_router.include_router(auth.router)
 api_router.include_router(tokenizer.router)
 api_router.include_router(templates.router)
 api_router.include_router(benchmarks.router)
+api_router.include_router(validator.router)
 
 # Shorthand aliases to prevent 404s from reverse proxies or clients
 api_router.add_api_route(

@@ -4,6 +4,8 @@ from pathlib import Path
 import rust_core
 
 SIGNALS_JSON_PATHS = [
+    Path("./data/verified_signals_test.json"),
+    Path("/Users/macseqoia/gits/others/app/test/signals.json"),
     Path("/Users/macseqoia/gits/app/test/signals.json"),
     Path("/app/data/signals.json"),
     Path("./data/signals.json"),
@@ -16,10 +18,22 @@ def load_signals_test_cases():
             with open(p, "r", encoding="utf-8") as f:
                 data = json.load(f)
             cases = []
-            for provider, case_list in data.get("dataCases", {}).items():
-                for idx, c in enumerate(case_list):
-                    cases.append((f"{provider}_{idx}", c))
-            return cases
+            if "dataCases" in data:
+                for provider, case_list in data.get("dataCases", {}).items():
+                    for idx, c in enumerate(case_list):
+                        cases.append((f"{provider}_{idx}", c))
+                if cases:
+                    return cases
+            elif "cases" in data:
+                for c in data.get("cases", []):
+                    gt = c.get("ground_truth", [])
+                    sigs = gt if isinstance(gt, list) else [gt]
+                    cases.append((f"{c.get('sender_name', 'case')}_{c.get('id', 0)}", {
+                        "text": c.get("text", ""),
+                        "signals": sigs
+                    }))
+                if cases:
+                    return cases
     return []
 
 test_cases = load_signals_test_cases()
@@ -49,14 +63,20 @@ def test_signal_case(case_id, case):
 
         # Verify Action
         if "action" in first_expected and first_expected["action"]:
-            expected_dir = "BUY" if first_expected["action"].get("Direction") else "SELL"
+            if isinstance(first_expected["action"], str):
+                expected_dir = first_expected["action"]
+            else:
+                expected_dir = "BUY" if first_expected["action"].get("Direction") else "SELL"
             assert first_extracted.get("action") == expected_dir, (
                 f"Action mismatch for {case_id}: expected {expected_dir}, got {first_extracted.get('action')}"
             )
 
         # Verify Symbol
         if "symbol" in first_expected and first_expected["symbol"]:
-            expected_asset = first_expected["symbol"].get("Asset", "").replace("-OTC", "").upper()
+            if isinstance(first_expected["symbol"], str):
+                expected_asset = first_expected["symbol"].replace("-OTC", "").upper()
+            else:
+                expected_asset = first_expected["symbol"].get("Asset", "").replace("-OTC", "").upper()
             if first_extracted.get("symbol"):
                 extracted_asset = first_extracted["symbol"].get("asset", "").upper()
                 assert expected_asset in extracted_asset or extracted_asset in expected_asset, (

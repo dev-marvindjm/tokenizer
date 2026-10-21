@@ -12,7 +12,8 @@ class Settings(BaseSettings):
 
     # Reference paths for data and historical database
     DATA_DIR: Path = Path("./data")
-    APP_HISTORICAL_DB_PATH: Optional[str] = "/Users/macseqoia/gits/app/trading_signals.db"
+    CONSOLIDATED_DB_PATH: Path = Path("./data/consolidated_signals.db")
+    APP_HISTORICAL_DB_PATH: Optional[str] = "/Users/macseqoia/gits/others/app/trading_signals.db"
 
     # Authentication & Security
     SECRET_KEY: str = "trading-signals-tokenizer-super-secret-jwt-key-2026-production"

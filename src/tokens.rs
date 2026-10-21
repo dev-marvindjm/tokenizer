@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 // use pyo3::prelude::*;
 // use pyo3::types::PyType;
-use crate::matchers::{Tokens, Nodes, TokenFlags, TokenClass, ACTION_VAL_U, ACTION_VAL_D, get_flags_and_token_class, get_nodes, check_category};
+use crate::matchers::{Tokens, Nodes, TokenFlags, TokenClass, ACTION_VAL_U, ACTION_VAL_D, get_flags_and_token_class, get_nodes, get_nodes_ref, check_category};
 
 #[allow(unsafe_op_in_unsafe_fn)]
 
@@ -563,7 +563,7 @@ pub fn parse_signal(texto: &str, custom_nodes: Option<&[Nodes]>, custom_symbols:
                                     found_first_symbol = true;
                                 }
                                 replacements.push((tok_start, tok_end, "symbol"));
-                            }else if let Some(currentsym) = get_symbol_from_text(match_str.as_str(), &get_nodes("symbols"), &nodes) {
+                            }else if let Some(currentsym) = get_symbol_from_text(match_str.as_str(), get_nodes_ref("symbols"), &nodes) {
                                 current_signal.symbol = Some(currentsym);
                                 line_contains_symbol = true;
                                 if !found_first_symbol {
@@ -573,7 +573,7 @@ pub fn parse_signal(texto: &str, custom_nodes: Option<&[Nodes]>, custom_symbols:
                                     found_first_symbol = true;
                                 }
                                 replacements.push((tok_start, tok_end, "symbol"));
-                            } else if let Some(currentsym) = get_symbol_from_text(before_match_str.as_str(), &get_nodes("symbols"), &nodes) {
+                            } else if let Some(currentsym) = get_symbol_from_text(before_match_str.as_str(), get_nodes_ref("symbols"), &nodes) {
                                 current_signal.symbol = Some(currentsym);
                                 line_contains_symbol = true;
                                 if !found_first_symbol {
@@ -595,7 +595,7 @@ pub fn parse_signal(texto: &str, custom_nodes: Option<&[Nodes]>, custom_symbols:
                                     replacements.push((tok_start, tok_end, "otc"));
                                 }
                             }
-                            let currentsym = if let Some(symbol) = get_symbol_from_text(match_str.as_str(), &get_nodes("symbols"), &nodes) {Some(symbol)} else {get_symbol_from_text(before_match_str.as_str(), &get_nodes("symbols"), &nodes)};
+                            let currentsym = if let Some(symbol) = get_symbol_from_text(match_str.as_str(), get_nodes_ref("symbols"), &nodes) {Some(symbol)} else {get_symbol_from_text(before_match_str.as_str(), get_nodes_ref("symbols"), &nodes)};
                             if currentsym.is_none() || !before_match_str.chars().all(|c| c.is_numeric()) || match_str.to_uppercase() != "INDEX"{
                                 continue;
                             }
@@ -641,7 +641,7 @@ pub fn parse_signal(texto: &str, custom_nodes: Option<&[Nodes]>, custom_symbols:
                             replacements.push((tok_start, tok_end, "action"));
                         }
                         if (current_signal.symbol.is_none() || matches!(current_signal.symbol.as_ref().unwrap().symbol_type, SymbolType::Empty(_))) && !before_match_str.is_empty(){
-                            if let Some(mut currentsym) = get_symbol_from_text(before_match_str.as_str(), &get_nodes("symbols"), &nodes) {
+                            if let Some(mut currentsym) = get_symbol_from_text(before_match_str.as_str(), get_nodes_ref("symbols"), &nodes) {
                                 if token_class == TokenClass::Otc{
                                     currentsym.symbol_class = Some(SymbolClass::Otc);
                                     replacements.push((tok_start, tok_end, "otc"));
@@ -655,7 +655,7 @@ pub fn parse_signal(texto: &str, custom_nodes: Option<&[Nodes]>, custom_symbols:
                                     found_first_symbol = true;
                                 }
                                 replacements.push((before_tok_start, before_tok_end, "symbol"));
-                            } else if let Some(mut currentsym) = get_symbol_from_text(match_str.as_str(), &get_nodes("symbols"), &nodes) {
+                            } else if let Some(mut currentsym) = get_symbol_from_text(match_str.as_str(), get_nodes_ref("symbols"), &nodes) {
                                 if token_class == TokenClass::Otc{
                                     currentsym.symbol_class = Some(SymbolClass::Otc);
                                     replacements.push((tok_start, tok_end, "otc"));
@@ -1075,38 +1075,139 @@ pub fn tokenize_example(example_text: &str, target_symbol: Option<&str>) -> (Str
     (pattern, l_idx, t_start, e_char, signals)
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct TemplateRequirements {
+    pub has_symbol: bool,
+    pub has_action: bool,
+    pub has_entry: bool,
+    pub has_stoploss: bool,
+    pub has_profit: bool,
+    pub has_period: bool,
+    pub has_time: bool,
+}
+
+impl TemplateRequirements {
+    pub fn from_pattern(pattern: &str) -> Self {
+        let mut req = Self::default();
+        for line in pattern.lines() {
+            let mut rem = line;
+            while let Some(start) = rem.find("$(") {
+                if let Some(end) = rem[start + 2..].find(')') {
+                    let label = &rem[start + 2..start + 2 + end];
+                    match label {
+                        "symbol" => req.has_symbol = true,
+                        "action" => req.has_action = true,
+                        "entry_price" | "entry_range" | "entry" | "price" => req.has_entry = true,
+                        "stoploss" => req.has_stoploss = true,
+                        "profit_price" | "profit" => req.has_profit = true,
+                        "period" | "period_digit" | "period_name" => req.has_period = true,
+                        "entry_time" | "time_entry" => req.has_time = true,
+                        _ => {}
+                    }
+                    rem = &rem[start + 2 + end + 1..];
+                } else {
+                    break;
+                }
+            }
+        }
+        req
+    }
+
+    pub fn is_satisfied_by(&self, signal: &Signal) -> bool {
+        if self.has_symbol && signal.symbol.is_none() {
+            return false;
+        }
+        if self.has_action && signal.action.is_none() {
+            return false;
+        }
+        if self.has_entry && signal.entry.is_none() {
+            return false;
+        }
+        if self.has_stoploss {
+            match &signal.target {
+                Some(Target::ProfitLoss(pt)) if pt.stoploss > 0.0 => {},
+                _ => return false,
+            }
+        }
+        if self.has_profit {
+            match &signal.target {
+                Some(Target::ProfitLoss(pt)) if pt.open || !pt.profits.is_empty() => {},
+                _ => return false,
+            }
+        }
+        if self.has_period {
+            match &signal.target {
+                Some(Target::PeriodTime(pt)) if !pt.is_empty() => {},
+                _ => return false,
+            }
+        }
+        if self.has_time {
+            match &signal.entry {
+                Some(Entry::TimeEntry(_, t)) if !t.is_empty() => {},
+                Some(Entry::TimePrice(_, _)) => {},
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
 fn is_line_match(orig_line: &str, mod_line: &str) -> bool {
-    if orig_line == mod_line {
+    let o_trim = orig_line.trim();
+    let m_trim = mod_line.trim();
+    if o_trim == m_trim {
         return true;
     }
-    let tokens = orig_line.zip_tokens(mod_line);
-    let mut count = 0;
-    let mut static_matches = 0;
-    for (orig_tok, mod_tok) in tokens {
-        count += 1;
-        if mod_tok.1 == orig_tok.1 {
+    if m_trim.is_empty() {
+        return o_trim.is_empty();
+    }
+    if o_trim.is_empty() {
+        return false;
+    }
+
+    if !mod_line.contains("$(") {
+        return o_trim == m_trim;
+    }
+
+    let mut matched_static = 0;
+    let mut matched_placeholders = 0;
+    let mut has_static = false;
+
+    for (mod_tok, orig_tok) in mod_line.zip_tokens(orig_line) {
+        if mod_tok.1.contains("$(") {
+            matched_placeholders += 1;
+        } else if mod_tok.1 == orig_tok.1 {
             if !mod_tok.1.trim().is_empty() {
-                static_matches += 1;
+                matched_static += 1;
             }
-        } else if !mod_tok.1.contains("$(") {
+        } else {
             return false;
         }
     }
-    count > 0 && static_matches > 0
+
+    for tok in mod_line.iter_tokens() {
+        if !tok.1.contains("$(") && !tok.1.trim().is_empty() {
+            has_static = true;
+            break;
+        }
+    }
+
+    if has_static {
+        matched_static > 0
+    } else {
+        matched_placeholders > 0
+    }
 }
 
 /// Analiza un texto original de señales de trading comparándolo contra un texto plantilla que contiene etiquetas `$(etiqueta)`.
-///
-/// # Parámetros
-/// - `original_text`: Texto original/mensaje recibido con señales de trading.
-/// - `modified_text`: Texto plantilla con patrones de concordancia como `$(symbol)`, `$(action)`, `$(entry_time)`, etc.
-/// - `_line_index`: Índice de línea del token en la entrada (reservado para trazabilidad de posición).
-/// - `_token_start`: Posición inicial de carácter del token (reservada para trazabilidad de posición).
-/// - `_end_char`: Carácter delimitador final (reservado para trazabilidad de posición).
-///
-/// # Retorno
-/// Retorna `Option<Vec<Signal>>` conteniendo la lista de señales extraídas si se encontró alguna válida, o `None` si el resultado está vacío.
+/// Retorna `Option<Vec<Signal>>` conteniendo la lista de señales extraídas si se encontró alguna válida, o `None`.
 pub fn parse_template(original_text: &str, modified_text: &str, line_index: Option<usize>, token_start: Option<usize>, end_char: Option<char>) -> Option<Vec<Signal>> {
+    parse_template_scored(original_text, modified_text, line_index, token_start, end_char)
+        .map(|(signals, _)| signals)
+}
+
+/// Analiza un texto original retornando las señales extraídas junto con el score de coincidencia (0.0 - 100.0).
+pub fn parse_template_scored(original_text: &str, modified_text: &str, line_index: Option<usize>, token_start: Option<usize>, end_char: Option<char>) -> Option<(Vec<Signal>, f32)> {
     // Vector acumulador donde se almacenarán las señales de trading extraídas
     let mut signals: Vec<Signal> = Vec::new();
     // Objeto Signal temporal para ir construyendo la señal actual
@@ -1114,7 +1215,6 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
 
     // Contadores para el ratio de acierto
     let mut total_template_tokens = 0usize;
-    let mut total_original_text_tokens = 0usize;
     let mut matched_tokens = 0usize;
 
     // Coleccionar las líneas del texto modificado/plantilla
@@ -1124,23 +1224,50 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
     }
 
     let mut mod_idx = 0;
+    let mut visited_mod_lines: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
     // Recorrer el texto original línea a línea
     for original_line in original_text.lines() {
-        // Reiniciar el índice de la línea plantilla si llegamos al final de la plantilla
-        // o si la línea original coincide con la primera línea de la plantilla
-        if mod_idx >= mod_lines.len()
-            || (mod_idx > 0
-                && !mod_lines[0].trim().is_empty()
-                && is_line_match(original_line, mod_lines[0]))
-        {
+        let orig_trimmed = original_line.trim();
+        if orig_trimmed.is_empty() {
+            if mod_idx < mod_lines.len() && mod_lines[mod_idx].trim().is_empty() {
+                visited_mod_lines.insert(mod_idx);
+                mod_idx += 1;
+            }
+            continue;
+        }
+
+        // Buscar si coincide con mod_idx o con alguna línea posterior en mod_lines
+        let mut target_idx = None;
+        if mod_idx < mod_lines.len() && is_line_match(original_line, mod_lines[mod_idx]) {
+            target_idx = Some(mod_idx);
+        } else {
+            for lookahead in (mod_idx + 1)..mod_lines.len() {
+                if is_line_match(original_line, mod_lines[lookahead]) {
+                    // Permitir saltar si las líneas intermedias eran opcionales (vacías o sin placeholders esenciales)
+                    let can_skip = mod_lines[(mod_idx + 1)..lookahead].iter().all(|l| {
+                        let req = TemplateRequirements::from_pattern(l);
+                        !req.has_symbol && !req.has_action && !req.has_entry && !req.has_stoploss && !req.has_profit && !req.has_period && !req.has_time
+                    });
+                    if can_skip {
+                        target_idx = Some(lookahead);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if let Some(idx) = target_idx {
+            mod_idx = idx;
+        } else if mod_idx > 0 && is_line_match(original_line, mod_lines[0]) {
             mod_idx = 0;
         }
-        if mod_idx + 1 < mod_lines.len()
-            && !is_line_match(original_line, mod_lines[mod_idx])
-            && is_line_match(original_line, mod_lines[mod_idx + 1])
-        {
-            mod_idx += 1;
+
+        if mod_idx >= mod_lines.len() {
+            continue;
         }
+
+        visited_mod_lines.insert(mod_idx);
         let mut modified_line = mod_lines[mod_idx].to_string();
         let mut original_line = original_line.to_string();
         let current_line_idx = mod_idx;
@@ -1158,7 +1285,7 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                     let mod_val = &mod_rem[..mod_len];
 
                     if mod_val.contains("$(symbol)") {
-                        let currentsym = get_symbol_from_text(orig_val, &get_nodes("symbols"), &get_nodes("checkers"));
+                        let currentsym = get_symbol_from_text(orig_val, get_nodes_ref("symbols"), get_nodes_ref("checkers"));
                         let end_range = start + orig_len;
                         if let Some(sym) = currentsym {
                             total_template_tokens += 1;
@@ -1187,6 +1314,10 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                 }
             }
         }
+
+        let mod_toks: Vec<(&str, String)> = modified_line.iter_tokens().collect();
+        let orig_toks: Vec<(&str, String)> = original_line.iter_tokens().collect();
+        let zipped_len = std::cmp::min(mod_toks.len(), orig_toks.len());
 
         // Iterar en paralelo sobre los tokens de la línea original y la línea plantilla
         for (modified_token, original_token) in modified_line.zip_tokens(&original_line) {
@@ -1219,7 +1350,7 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
             match label {
                 "symbol" => {
                     // Extraer y resolver el símbolo o activo financiero a partir del texto
-                    let currentsym = get_symbol_from_text(orig_val, &get_nodes("symbols"), &get_nodes("checkers"));
+                    let currentsym = get_symbol_from_text(orig_val, get_nodes_ref("symbols"), get_nodes_ref("checkers"));
                     if let Some(sym) = currentsym.as_ref() {
                         if let SymbolType::Plain(_) = sym.symbol_type {
                             if current_signal.symbol.is_none() {
@@ -1272,7 +1403,7 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                 },
                 "action" => {
                     // Obtener los flags y clasificación del token para determinar si es acción al alza o a la baja
-                    let (flags, _) = get_flags_and_token_class(orig_val, original_token.0, &get_nodes("checkers"));
+                    let (flags, _) = get_flags_and_token_class(orig_val, original_token.0, get_nodes_ref("checkers"));
                     let detected_action = if flags.contains(TokenFlags::VALUE_UP) {
                         Some(true) // Operación de Compra / Call / Alza
                         // agrega valor al ratio
@@ -1343,8 +1474,8 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
                     matched_tokens += 1;
                 },
                 "entry_time" | "time_entry" => {
-                    // Si la señal previa ya cuenta con suficiente información, guardarla y reiniciar
-                    if current_signal.is_complete() || (current_signal.symbol.is_some() && current_signal.action.is_some()) {
+                    // Si la señal previa ya cuenta con suficiente información y ya tiene punto de entrada, guardarla y reiniciar
+                    if current_signal.is_complete() || (current_signal.entry.is_some() && current_signal.symbol.is_some() && current_signal.action.is_some()) {
                         signals.push(current_signal.clone());
                         current_signal = Signal::default();
                     }
@@ -1516,6 +1647,13 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
         if labeled != "profit_price" {
             mod_idx += 1;
         }
+
+        // Contabilizar tokens remanentes no-vacíos de la plantilla que no se llegaron a zip en esta línea
+        for extra_mod in &mod_toks[zipped_len..] {
+            if !extra_mod.1.trim().is_empty() {
+                total_template_tokens += 1;
+            }
+        }
     }
 
     // Agregar la última señal si tiene datos mínimos indispensables (símbolo y acción)
@@ -1523,18 +1661,40 @@ pub fn parse_template(original_text: &str, modified_text: &str, line_index: Opti
         signals.push(current_signal);
     }
 
-    // Retornar las señales extraídas o None si no se construyó ninguna
-    if !signals.is_empty() {
-        let ratio = if total_template_tokens > 0 {
-            (matched_tokens as f32 / (total_template_tokens as f32)) * 100.0
-        } else {
-            0.0
-        };
-        if ratio >= 98.0 {
-            return Some(signals);
+    if signals.is_empty() {
+        return None;
+    }
+
+    // Verificar que todas las señales extraídas cumplan con los requerimientos del template
+    let template_req = TemplateRequirements::from_pattern(modified_text);
+    if !signals.iter().all(|s| template_req.is_satisfied_by(s)) {
+        return None;
+    }
+
+    // Contabilizar líneas esenciales no visitadas de la plantilla
+    for (idx, m_line) in mod_lines.iter().enumerate() {
+        if !visited_mod_lines.contains(&idx) {
+            let line_req = TemplateRequirements::from_pattern(m_line);
+            if line_req.has_symbol || line_req.has_action || line_req.has_entry || line_req.has_stoploss || line_req.has_profit || line_req.has_period || line_req.has_time {
+                for tok in m_line.iter_tokens() {
+                    if !tok.1.trim().is_empty() {
+                        total_template_tokens += 1;
+                    }
+                }
+            }
         }
     }
-    
+
+    let ratio = if total_template_tokens > 0 {
+        (matched_tokens as f32 / (total_template_tokens as f32)) * 100.0
+    } else {
+        0.0
+    };
+
+    if ratio >= 98.0 {
+        return Some((signals, ratio));
+    }
+
     None
 }
 

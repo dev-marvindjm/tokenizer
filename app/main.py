@@ -27,8 +27,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+
 # Include API v1 router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+@app.get("/validator", response_class=HTMLResponse, tags=["UI"])
+@app.get("/", response_class=HTMLResponse, tags=["UI"])
+async def serve_validator_ui():
+    html_file = STATIC_DIR / "validator.html"
+    if html_file.exists():
+        return FileResponse(html_file)
+    return HTMLResponse("<h1>Validator UI not found</h1>", status_code=404)
 
 @app.get("/health", tags=["Health"])
 async def health_check():
@@ -42,3 +58,4 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+

@@ -170,6 +170,7 @@ class MatchTemplateResponse(BaseModel):
     template_id: Optional[int] = None
     template_name: Optional[str] = None
     matched_pattern: Optional[str] = None
+    match_score: Optional[float] = None
     signal: Optional[Dict[str, Any]] = None
     processing_time_us: int
 

@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
-use crate::tokens::{parse_template, parse_signal, Signal, Entry, Target, SymbolType};
+use crate::tokens::{parse_template, parse_template_scored, parse_signal, Signal, Entry, Target, SymbolType};
 
 #[pyclass(get_all, set_all)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -15,12 +15,13 @@ pub struct ParsedSignal {
     pub is_binary: bool,
     pub template_name: Option<String>,
     pub matched_pattern: Option<String>,
+    pub match_score: Option<f32>,
 }
 
 #[pymethods]
 impl ParsedSignal {
     #[new]
-    #[pyo3(signature = (symbol=None, action=None, entry_prices=None, stoploss=None, takeprofits=None, timeframe=None, expiration=None, is_binary=false, template_name=None, matched_pattern=None))]
+    #[pyo3(signature = (symbol=None, action=None, entry_prices=None, stoploss=None, takeprofits=None, timeframe=None, expiration=None, is_binary=false, template_name=None, matched_pattern=None, match_score=None))]
     pub fn new(
         symbol: Option<String>,
         action: Option<String>,
@@ -32,6 +33,7 @@ impl ParsedSignal {
         is_binary: bool,
         template_name: Option<String>,
         matched_pattern: Option<String>,
+        match_score: Option<f32>,
     ) -> Self {
         Self {
             symbol,
@@ -44,6 +46,7 @@ impl ParsedSignal {
             is_binary,
             template_name,
             matched_pattern,
+            match_score,
         }
     }
 
@@ -59,19 +62,20 @@ impl ParsedSignal {
         dict.set_item("is_binary", self.is_binary)?;
         dict.set_item("template_name", &self.template_name)?;
         dict.set_item("matched_pattern", &self.matched_pattern)?;
+        dict.set_item("match_score", self.match_score)?;
         Ok(dict.into())
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "ParsedSignal(symbol={:?}, action={:?}, entry={:?}, sl={:?}, tp={:?}, tf={:?}, binary={})",
-            self.symbol, self.action, self.entry_prices, self.stoploss, self.takeprofits, self.timeframe, self.is_binary
+            "ParsedSignal(symbol={:?}, action={:?}, entry={:?}, sl={:?}, tp={:?}, tf={:?}, binary={}, score={:?})",
+            self.symbol, self.action, self.entry_prices, self.stoploss, self.takeprofits, self.timeframe, self.is_binary, self.match_score
         )
     }
 }
 
 impl ParsedSignal {
-    pub fn from_signal(sig: &Signal, is_binary: bool, tpl_name: Option<String>, pattern: Option<String>) -> Self {
+    pub fn from_signal(sig: &Signal, is_binary: bool, tpl_name: Option<String>, pattern: Option<String>, score: Option<f32>) -> Self {
         let mut symbol = None;
         if let Some(ref s) = sig.symbol {
             symbol = match &s.symbol_type {
@@ -134,6 +138,7 @@ impl ParsedSignal {
             is_binary,
             template_name: tpl_name,
             matched_pattern: pattern,
+            match_score: score,
         }
     }
 }
@@ -146,7 +151,7 @@ pub fn match_template(text: &str, pattern: &str, template_name: Option<&str>) ->
         return None;
     }
 
-    if let Some(matched_signals) = parse_template(text, pattern, None, None, None) {
+    if let Some((matched_signals, score)) = parse_template_scored(text, pattern, None, None, None) {
         if let Some(first_sig) = matched_signals.first() {
             let is_binary = first_sig.is_binary();
             return Some(ParsedSignal::from_signal(
@@ -154,9 +159,47 @@ pub fn match_template(text: &str, pattern: &str, template_name: Option<&str>) ->
                 is_binary,
                 template_name.map(|s| s.to_string()),
                 Some(pattern.to_string()),
+                Some(score),
             ));
         }
     }
 
     None
+}
+
+/// Matches raw text against a given template pattern syntax and returns formatted JSON string with score
+#[pyfunction]
+#[pyo3(signature = (text, pattern, template_name=None))]
+pub fn parse_template_json(text: &str, pattern: &str, template_name: Option<&str>) -> PyResult<Option<String>> {
+    if pattern.trim().is_empty() {
+        return Ok(None);
+    }
+
+    if let Some((signals, score)) = parse_template_scored(text, pattern, None, None, None) {
+        let value = serde_json::json!({
+            "signals": signals,
+            "match_score": score,
+            "template_name": template_name,
+            "pattern": pattern
+        });
+        match serde_json::to_string_pretty(&value) {
+            Ok(s) => Ok(Some(s)),
+            Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!("JSON serialization error: {}", e))),
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+/// Parses raw signal text using the token engine and returns formatted JSON string of extracted Signals
+#[pyfunction]
+pub fn parse_signal_json(text: &str) -> PyResult<Option<String>> {
+    if let Some(signals) = parse_signal(text, None, None) {
+        match serde_json::to_string_pretty(&signals) {
+            Ok(s) => Ok(Some(s)),
+            Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!("JSON serialization error: {}", e))),
+        }
+    } else {
+        Ok(None)
+    }
 }

@@ -57,39 +57,52 @@ bitflags! {
 
 pub use crate::tst::Nodes;
 
+/// Devuelve una copia propia del conjunto de nodos solicitado.
+/// Úsese solo cuando se necesite extender el vector (p. ej. con checkers personalizados);
+/// en rutas calientes preferir [`get_nodes_ref`], que no clona.
 pub fn get_nodes(tipo: &str) -> Vec<Nodes> {
+    get_nodes_ref(tipo).to_vec()
+}
+
+/// Devuelve una referencia estática al conjunto de nodos solicitado, sin clonar.
+/// Los conjuntos se construyen una única vez (perezosamente) y se reutilizan.
+pub fn get_nodes_ref(tipo: &str) -> &'static [Nodes] {
     match tipo {
-        "checkers" => vec![
-            ACTION_V.clone(),
-            ACTION_VAL_U.clone(),
-            ACTION_VAL_D.clone(),
-            GALE_VAL_D.clone(),
-            INDICADOR_VAL_D.clone(),
-            INFO_V.clone(),
-            SYMBOL_V.clone(),
-            // RESULT_V.clone(),
-            TARGET_V.clone(),
-            TARGET_VAL_D.clone(),
-            TARGET_VAL_U.clone(),
-            TIMEFRAME_V.clone(),
-            TIMEFRAME_VAL_D.clone(),
-            TIMEZONE_V.clone(),
-            // TIMEZONE_VAL_D.clone(),
-            SYMBOL_INDEX_VAL_D.clone(),
-        ],
-        "symbols" => vec![
-            SYMBOL_FOREX_VAL.clone(),
-            SYMBOL_CRYPTO_VAL.clone(),
-            SYMBOL_INDEX_VAL.clone(),
-            // SYMBOL_INDEX_VAL_D.clone(),
-            SYMBOL_ETF_VAL.clone(),
-            SYMBOL_FUNDS_VAL.clone(),
-            SYMBOL_MONEY_VAL.clone(),
-            SYMBOL_STOCK_VAL.clone(),
-        ],
-        &_ => vec![],
+        "checkers" => CHECKER_NODES.as_slice(),
+        "symbols" => SYMBOL_NODES.as_slice(),
+        &_ => &[],
     }
 }
+
+static CHECKER_NODES: LazyLock<Vec<Nodes>> = LazyLock::new(|| vec![
+    ACTION_V.clone(),
+    ACTION_VAL_U.clone(),
+    ACTION_VAL_D.clone(),
+    GALE_VAL_D.clone(),
+    INDICADOR_VAL_D.clone(),
+    INFO_V.clone(),
+    SYMBOL_V.clone(),
+    // RESULT_V.clone(),
+    TARGET_V.clone(),
+    TARGET_VAL_D.clone(),
+    TARGET_VAL_U.clone(),
+    TIMEFRAME_V.clone(),
+    TIMEFRAME_VAL_D.clone(),
+    TIMEZONE_V.clone(),
+    // TIMEZONE_VAL_D.clone(),
+    SYMBOL_INDEX_VAL_D.clone(),
+]);
+
+static SYMBOL_NODES: LazyLock<Vec<Nodes>> = LazyLock::new(|| vec![
+    SYMBOL_FOREX_VAL.clone(),
+    SYMBOL_CRYPTO_VAL.clone(),
+    SYMBOL_INDEX_VAL.clone(),
+    // SYMBOL_INDEX_VAL_D.clone(),
+    SYMBOL_ETF_VAL.clone(),
+    SYMBOL_FUNDS_VAL.clone(),
+    SYMBOL_MONEY_VAL.clone(),
+    SYMBOL_STOCK_VAL.clone(),
+]);
 
 
 

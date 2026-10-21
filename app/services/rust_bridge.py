@@ -64,6 +64,7 @@ class RustBridgeService:
                 "is_binary": res.is_binary,
                 "template_name": res.template_name,
                 "matched_pattern": res.matched_pattern,
+                "match_score": res.match_score,
             }, duration_us
         return None, duration_us
 
@@ -71,4 +72,29 @@ class RustBridgeService:
     async def match_template_async(cls, text: str, pattern: str, template_name: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], int]:
         return await asyncio.to_thread(cls.match_template_sync, text, pattern, template_name)
 
+    @staticmethod
+    def parse_signal_sync(text: str) -> Tuple[Optional[str], int]:
+        """Synchronously execute parse_signal and return pretty JSON string and latency in µs."""
+        t0 = time.perf_counter_ns()
+        json_str = rust_core.parse_signal_json(text)
+        duration_us = (time.perf_counter_ns() - t0) // 1000
+        return json_str, duration_us
+
+    @classmethod
+    async def parse_signal_async(cls, text: str) -> Tuple[Optional[str], int]:
+        return await asyncio.to_thread(cls.parse_signal_sync, text)
+
+    @staticmethod
+    def parse_template_sync(text: str, pattern: str, template_name: Optional[str] = None) -> Tuple[Optional[str], int]:
+        """Synchronously execute parse_template and return pretty JSON string and latency in µs."""
+        t0 = time.perf_counter_ns()
+        json_str = rust_core.parse_template_json(text, pattern, template_name)
+        duration_us = (time.perf_counter_ns() - t0) // 1000
+        return json_str, duration_us
+
+    @classmethod
+    async def parse_template_async(cls, text: str, pattern: str, template_name: Optional[str] = None) -> Tuple[Optional[str], int]:
+        return await asyncio.to_thread(cls.parse_template_sync, text, pattern, template_name)
+
 rust_bridge = RustBridgeService()
+

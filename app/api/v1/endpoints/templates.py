@@ -234,11 +234,13 @@ async def match_template_endpoint(
         matched_sig, dur_us = await rust_bridge.match_template_async(
             payload.text, template.pattern_syntax, template.name
         )
+        score = float(matched_sig.get("match_score") or 0.0) if matched_sig else None
         return MatchTemplateResponse(
             matched=matched_sig is not None,
             template_id=template.id,
             template_name=template.name,
             matched_pattern=template.pattern_syntax,
+            match_score=score,
             signal=matched_sig,
             processing_time_us=dur_us,
         )
@@ -274,20 +276,41 @@ async def match_template_endpoint(
     templates = result.all()
 
     total_us = 0
+    best_candidate = None
+    best_score = -1.0
+    best_priority = -1
+
     for tpl in templates:
         matched_sig, dur_us = await rust_bridge.match_template_async(
             payload.text, tpl.pattern_syntax, tpl.name
         )
         total_us += dur_us
         if matched_sig is not None:
-            return MatchTemplateResponse(
-                matched=True,
-                template_id=tpl.id,
-                template_name=tpl.name,
-                matched_pattern=tpl.pattern_syntax,
-                signal=matched_sig,
-                processing_time_us=total_us,
-            )
+            score = float(matched_sig.get("match_score") or 0.0)
+            priority = int(tpl.priority or 0)
+            if (
+                best_candidate is None
+                or (score > best_score)
+                or (score == best_score and priority > best_priority)
+            ):
+                best_score = score
+                best_priority = priority
+                best_candidate = (tpl, matched_sig, score)
+                # If perfect score and templates already sorted by priority.desc(), no later candidate can beat this
+                if score >= 1.0:
+                    break
+
+    if best_candidate is not None:
+        tpl, matched_sig, score = best_candidate
+        return MatchTemplateResponse(
+            matched=True,
+            template_id=tpl.id,
+            template_name=tpl.name,
+            matched_pattern=tpl.pattern_syntax,
+            match_score=score,
+            signal=matched_sig,
+            processing_time_us=total_us,
+        )
 
     # Return unmatched response strictly if no template matched
     return MatchTemplateResponse(
@@ -295,6 +318,7 @@ async def match_template_endpoint(
         template_id=None,
         template_name=None,
         matched_pattern=None,
+        match_score=None,
         signal=None,
         processing_time_us=total_us,
     )

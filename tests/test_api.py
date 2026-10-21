@@ -74,6 +74,8 @@ async def test_templates_crud_and_match():
 async def test_benchmarks_replay_endpoint():
     transport = ASGITransport(app=app)
     candidate_paths = [
+        Path("./data/consolidated_signals.db"),
+        Path("/Users/macseqoia/gits/others/app/trading_signals.db"),
         Path("/app/data/trading_signals.db"),
         Path("/Users/macseqoia/gits/app/trading_signals.db"),
         Path("./data/trading_signals.db"),

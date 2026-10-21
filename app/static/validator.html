@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Validador de Señales y Templates de Telegram</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Vue 3 CDN -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+            },
+            dark: {
+              900: '#0b0f19',
+              850: '#111827',
+              800: '#1f2937',
+              750: '#283344',
+              700: '#374151',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    pre, code, textarea.font-mono {
+      font-family: 'JetBrains Mono', 'Fira Code', 'Monaco', 'Courier New', monospace;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #111827;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #374151;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #4b5563;
+    }
+  </style>
+</head>
+<body class="bg-dark-900 text-gray-200 antialiased min-h-screen flex flex-col font-sans select-none">
+  <div id="app" class="flex flex-col h-screen overflow-hidden">
+    
+    <!-- TOP NAVIGATION & STATS HEADER -->
+    <header class="bg-dark-850 border-b border-dark-700 px-6 py-3 flex items-center justify-between shrink-0 shadow-lg">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-blue-600/20 text-blue-400 flex items-center justify-center font-bold text-lg border border-blue-500/30">
+          <i class="fa-solid fa-bolt"></i>
+        </div>
+        <div>
+          <h1 class="text-base font-bold text-white tracking-wide flex items-center gap-2">
+            Trading Signals Ground Truth Studio
+            <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium">Rust Core Engine</span>
+          </h1>
+          <p class="text-xs text-gray-400">Validador de plantillas, extracción de señales y repositorio de pruebas para Telegram</p>
+        </div>
+      </div>
+
+      <!-- Quick Metrics Summary -->
+      <div class="flex items-center gap-4 text-xs">
+        <div class="bg-dark-800 border border-dark-700 px-3 py-1.5 rounded-lg flex items-center gap-3 shadow-inner">
+          <span class="text-gray-400">Mensajes: <strong class="text-white">{{ stats.total_messages?.toLocaleString() }}</strong></span>
+          <span class="h-3 w-px bg-dark-700"></span>
+          <span class="text-gray-400">Validados: <strong class="text-blue-400">{{ stats.total_validated?.toLocaleString() }}</strong></span>
+          <span class="h-3 w-px bg-dark-700"></span>
+          <span class="text-emerald-400 font-semibold flex items-center gap-1">
+            <i class="fa-solid fa-circle-check text-[10px]"></i> {{ stats.signals_count }} Señales
+          </span>
+          <span class="h-3 w-px bg-dark-700"></span>
+          <span class="text-gray-400 flex items-center gap-1">
+            <i class="fa-solid fa-circle-xmark text-[10px] text-gray-500"></i> {{ stats.non_signals_count }} Sin Señal
+          </span>
+        </div>
+
+        <!-- Export button -->
+        <button 
+          @click="openExportModal"
+          class="bg-blue-600 hover:bg-blue-500 text-white font-medium px-3.5 py-1.5 rounded-lg flex items-center gap-2 transition duration-150 shadow-md">
+          <i class="fa-solid fa-download"></i>
+          <span>Exportar Test JSON</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- MAIN APP SPLIT CONTAINER -->
+    <div class="flex flex-1 overflow-hidden">
+      
+      <!-- LEFT PANE: MESSAGES EXPLORER (35% width) -->
+      <div class="w-[38%] border-r border-dark-700 bg-dark-850 flex flex-col shrink-0">
+        
+        <!-- Search & Filter Controls -->
+        <div class="p-3 border-b border-dark-700 space-y-2.5 bg-dark-850/90 backdrop-blur">
+          
+          <!-- Search Bar -->
+          <div class="relative">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-500 text-xs"></i>
+            <input 
+              v-model="filters.search" 
+              @input="debounceSearch"
+              type="text" 
+              placeholder="Buscar texto en mensajes..."
+              class="w-full bg-dark-800 border border-dark-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition"
+            />
+            <button v-if="filters.search" @click="filters.search = ''; loadMessages()" class="absolute right-2.5 top-2 text-gray-500 hover:text-gray-300">
+              <i class="fa-solid fa-xmark text-xs"></i>
+            </button>
+          </div>
+
+          <!-- Channel / Sender Filter -->
+          <div class="flex gap-2">
+            <select 
+              v-model="filters.sender_name" 
+              @change="loadMessages(1)"
+              class="flex-1 bg-dark-800 border border-dark-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500">
+              <option value="">Todos los Canales / Remitentes ({{ senders.length }})</option>
+              <option v-for="s in senders" :key="s.id" :value="s.display_name">
+                {{ s.display_name }} ({{ s.messages_count }})
+              </option>
+            </select>
+          </div>
+
+          <!-- Status Filter Tabs -->
+          <div class="flex bg-dark-800 p-0.5 rounded-lg border border-dark-700 text-[11px]">
+            <button 
+              @click="setStatusFilter('all')" 
+              :class="filters.status === 'all' ? 'bg-dark-700 text-white font-semibold' : 'text-gray-400 hover:text-gray-200'"
+              class="flex-1 py-1 rounded transition text-center">
+              Todos
+            </button>
+            <button 
+              @click="setStatusFilter('pending')" 
+              :class="filters.status === 'pending' ? 'bg-dark-700 text-amber-400 font-semibold' : 'text-gray-400 hover:text-gray-200'"
+              class="flex-1 py-1 rounded transition text-center">
+              Pendientes
+            </button>
+            <button 
+              @click="setStatusFilter('validated')" 
+              :class="filters.status === 'validated' ? 'bg-dark-700 text-blue-400 font-semibold' : 'text-gray-400 hover:text-gray-200'"
+              class="flex-1 py-1 rounded transition text-center">
+              Validados
+            </button>
+            <button 
+              @click="setStatusFilter('signal')" 
+              :class="filters.status === 'signal' ? 'bg-dark-700 text-emerald-400 font-semibold' : 'text-gray-400 hover:text-gray-200'"
+              class="flex-1 py-1 rounded transition text-center">
+              Con Señal
+            </button>
+            <button 
+              @click="setStatusFilter('non_signal')" 
+              :class="filters.status === 'non_signal' ? 'bg-dark-700 text-rose-400 font-semibold' : 'text-gray-400 hover:text-gray-200'"
+              class="flex-1 py-1 rounded transition text-center">
+              Sin Señal
+            </button>
+          </div>
+
+          <!-- Multi-Select Bulk Actions Toolbar -->
+          <div class="flex items-center justify-between pt-1 px-1 text-xs">
+            <label class="flex items-center gap-2 cursor-pointer text-gray-400 hover:text-gray-200">
+              <input 
+                type="checkbox" 
+                :checked="isAllSelected" 
+                @change="toggleSelectAll" 
+                class="rounded bg-dark-800 border-dark-700 text-blue-600 focus:ring-0">
+              <span>Seleccionar todos ({{ selectedIds.length }})</span>
+            </label>
+
+            <!-- Bulk reject button -->
+            <button 
+              v-if="selectedIds.length > 0"
+              @click="batchMarkNoSignal"
+              class="bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 transition">
+              <i class="fa-solid fa-ban"></i>
+              <span>Marcar {{ selectedIds.length }} sin señal</span>
+            </button>
+          </div>
+
+        </div>
+
+        <!-- Scrollable Message List -->
+        <div class="flex-1 overflow-y-auto divide-y divide-dark-750">
+          <div v-if="loadingMessages" class="p-8 text-center text-gray-500 text-xs">
+            <i class="fa-solid fa-circle-notch fa-spin text-lg mb-2 text-blue-400"></i>
+            <p>Cargando mensajes...</p>
+          </div>
+          <div v-else-if="messages.length === 0" class="p-8 text-center text-gray-500 text-xs">
+            <i class="fa-regular fa-envelope-open text-2xl mb-2 text-gray-600"></i>
+            <p>No se encontraron mensajes con los filtros seleccionados.</p>
+          </div>
+
+          <!-- Message Card -->
+          <div 
+            v-for="msg in messages" 
+            :key="msg.id" 
+            @click="selectMessage(msg)"
+            :class="[
+              currentMessage?.id === msg.id ? 'bg-blue-950/40 border-l-4 border-l-blue-500' : 'hover:bg-dark-800/60',
+              'p-3 cursor-pointer transition select-text flex gap-3'
+            ]">
+            
+            <!-- Checkbox for multi-select -->
+            <div class="pt-0.5" @click.stop>
+              <input 
+                type="checkbox" 
+                :value="msg.id" 
+                v-model="selectedIds" 
+                class="rounded bg-dark-800 border-dark-700 text-blue-600 focus:ring-0">
+            </div>
+
+            <!-- Card Body -->
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center justify-between gap-1 mb-1">
+                <span class="text-[11px] font-medium text-blue-400 truncate max-w-[180px]">
+                  {{ msg.sender_name || 'Sin remitente' }}
+                </span>
+                
+                <!-- Status Badge -->
+                <span v-if="msg.is_validated && msg.is_signal" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0 font-medium flex items-center gap-1">
+                  <i class="fa-solid fa-check"></i> Señal ({{ msg.signals_count || 1 }})
+                </span>
+                <span v-else-if="msg.is_validated && !msg.is_signal" class="text-[10px] px-1.5 py-0.5 rounded bg-dark-700 text-gray-400 border border-gray-600 shrink-0 font-medium">
+                  Sin señal
+                </span>
+                <span v-else class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 shrink-0">
+                  Pendiente
+                </span>
+              </div>
+
+              <!-- Message preview -->
+              <p class="text-xs text-gray-300 line-clamp-2 font-mono whitespace-pre-wrap leading-relaxed select-text">
+                {{ msg.raw_text }}
+              </p>
+
+              <div class="flex items-center justify-between text-[10px] text-gray-500 mt-1.5">
+                <span>#{{ msg.id }} <span v-if="msg.external_message_id">• TG ID: {{ msg.external_message_id }}</span></span>
+                <span>{{ formatDate(msg.published_at || msg.captured_at) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pagination Bar -->
+        <div class="p-2.5 border-t border-dark-700 bg-dark-850 flex items-center justify-between text-xs text-gray-400">
+          <span>Pág. {{ pagination.page }} de {{ pagination.totalPages }} ({{ pagination.total.toLocaleString() }})</span>
+          <div class="flex items-center gap-1">
+            <button 
+              @click="changePage(pagination.page - 1)" 
+              :disabled="pagination.page <= 1"
+              class="px-2 py-1 bg-dark-800 hover:bg-dark-700 disabled:opacity-40 disabled:hover:bg-dark-800 rounded border border-dark-700 transition">
+              <i class="fa-solid fa-chevron-left text-[10px]"></i>
+            </button>
+            <button 
+              @click="changePage(pagination.page + 1)" 
+              :disabled="pagination.page >= pagination.totalPages"
+              class="px-2 py-1 bg-dark-800 hover:bg-dark-700 disabled:opacity-40 disabled:hover:bg-dark-800 rounded border border-dark-700 transition">
+              <i class="fa-solid fa-chevron-right text-[10px]"></i>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- RIGHT PANE: GROUND TRUTH VALIDATOR & JSON COMPARATOR (65% width) -->
+      <div class="flex-1 bg-dark-900 flex flex-col overflow-y-auto">
+        
+        <div v-if="!currentMessage" class="flex-1 flex flex-col items-center justify-center text-gray-500 p-8">
+          <i class="fa-regular fa-comment-dots text-4xl mb-3 text-dark-700"></i>
+          <h2 class="text-base font-medium text-gray-400">Selecciona un mensaje de Telegram</h2>
+          <p class="text-xs text-gray-600 mt-1">Elige un mensaje de la columna izquierda para ejecutar los analizadores y validar el Ground Truth.</p>
+        </div>
+
+        <div v-else class="flex flex-col flex-1 p-5 space-y-4">
+          
+          <!-- MESSAGE DETAILS HEADER & NAV -->
+          <div class="bg-dark-850 border border-dark-700 rounded-xl p-4 shadow-sm flex items-start justify-between">
+            <div>
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-sm font-bold text-white">{{ currentMessage.sender_name }}</span>
+                <span v-if="currentMessage.channel_handle" class="text-xs text-blue-400">{{ currentMessage.channel_handle }}</span>
+                <span class="text-xs text-gray-500 font-mono">• Mensaje #{{ currentMessage.id }}</span>
+              </div>
+              <div class="text-[11px] text-gray-400 flex items-center gap-3">
+                <span v-if="currentMessage.external_message_id">ID Telegram: <strong class="text-gray-300">{{ currentMessage.external_message_id }}</strong></span>
+                <span>Capturado: <strong class="text-gray-300">{{ currentMessage.captured_at }}</strong></span>
+                <span>Fuente: <strong class="text-gray-300">{{ currentMessage.source_db }}</strong></span>
+              </div>
+            </div>
+
+            <!-- Prev / Next Navigation buttons -->
+            <div class="flex items-center gap-2">
+              <button 
+                @click="navMessage(-1)" 
+                title="Mensaje anterior (Alt+Izquierda)"
+                class="px-2.5 py-1.5 bg-dark-800 hover:bg-dark-700 border border-dark-700 rounded-lg text-xs text-gray-300 transition flex items-center gap-1.5">
+                <i class="fa-solid fa-arrow-left text-[10px]"></i> Anterior
+              </button>
+              <button 
+                @click="navMessage(1)" 
+                title="Mensaje siguiente (Alt+Derecha)"
+                class="px-2.5 py-1.5 bg-dark-800 hover:bg-dark-700 border border-dark-700 rounded-lg text-xs text-gray-300 transition flex items-center gap-1.5">
+                Siguiente <i class="fa-solid fa-arrow-right text-[10px]"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- ROW 1: MENSAJE ORIGINAL & JSON GROUND TRUTH (PARALELOS) -->
+          <div class="grid grid-cols-2 gap-4">
+            
+            <!-- RAW TEXT DISPLAY (COLUMNA 1) -->
+            <div class="bg-dark-850 border border-dark-700 rounded-xl p-4 shadow-sm flex flex-col">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <i class="fa-solid fa-quote-left text-blue-400 text-[10px]"></i> Texto Original del Mensaje
+                </span>
+                <button 
+                  @click="copyToClipboard(currentMessage.raw_text, 'Texto copiado')" 
+                  class="text-xs text-gray-400 hover:text-white px-2 py-1 bg-dark-800 rounded border border-dark-700 transition">
+                  <i class="fa-regular fa-copy"></i> Copiar
+                </button>
+              </div>
+              <pre class="flex-1 min-h-[280px] max-h-[350px] bg-dark-900/90 border border-dark-750 p-3 rounded-lg text-xs font-mono text-emerald-300 whitespace-pre-wrap select-text leading-relaxed overflow-y-auto">{{ currentMessage.raw_text }}</pre>
+            </div>
+
+            <!-- GROUND TRUTH VERIFICATION PANEL (COLUMNA 2) -->
+            <div class="bg-dark-850 border-2 border-blue-500/40 rounded-xl p-4 shadow-sm flex flex-col space-y-3">
+              
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+                  <h3 class="text-xs font-bold text-white tracking-wide">JSON Verdadero (Ground Truth)</h3>
+                </div>
+                
+                <!-- Auto advance toggle -->
+                <label class="flex items-center gap-1.5 text-[11px] text-gray-400 cursor-pointer hover:text-gray-200">
+                  <input type="checkbox" v-model="autoAdvance" class="rounded bg-dark-800 border-dark-700 text-blue-600 focus:ring-0">
+                  <span>Auto-avanzar al guardar</span>
+                </label>
+              </div>
+
+              <!-- CONTROLS: CHECKBOX, SIGNALS COUNT, DEFAULT GALES & TEMPLATE -->
+              <div class="grid grid-cols-4 gap-2 bg-dark-800/80 p-2.5 rounded-lg border border-dark-700 text-xs">
+                
+                <!-- Checkbox: Contiene Señal -->
+                <label class="flex items-center gap-2 cursor-pointer select-none">
+                  <input 
+                    type="checkbox" 
+                    v-model="validation.is_signal"
+                    @change="onSignalCheckboxChange"
+                    class="w-4 h-4 rounded bg-dark-900 border-dark-600 text-blue-600 focus:ring-0 cursor-pointer">
+                  <div>
+                    <span class="text-xs font-semibold text-white block">Contiene Señal</span>
+                  </div>
+                </label>
+
+                <!-- Number input: Cantidad de señales -->
+                <div class="flex items-center gap-1">
+                  <label class="text-[11px] font-medium text-gray-400 whitespace-nowrap">Señales:</label>
+                  <input 
+                    type="number" 
+                    v-model.number="validation.signals_count" 
+                    min="0" 
+                    max="10"
+                    :disabled="!validation.is_signal"
+                    class="w-14 bg-dark-900 border border-dark-700 rounded px-2 py-1 text-xs text-white text-center font-mono disabled:opacity-40 focus:outline-none focus:border-blue-500">
+                </div>
+
+                <!-- Default Gales List -->
+                <div class="flex items-center gap-1">
+                  <label class="text-[11px] font-medium text-gray-400 whitespace-nowrap" title="Lista de gales por defecto (ej: [], [1], [2])">Gales:</label>
+                  <input 
+                    type="text" 
+                    v-model="defaultGalesInput" 
+                    @change="onDefaultGalesChange"
+                    list="gales-presets"
+                    :disabled="!validation.is_signal"
+                    placeholder="[]"
+                    :class="[
+                      isDefaultGalesValid ? 'border-dark-700 focus:border-blue-500 text-emerald-300' : 'border-rose-500 focus:border-rose-500 text-rose-400',
+                      'w-full bg-dark-900 border rounded px-2 py-1 text-xs text-center font-mono disabled:opacity-40 focus:outline-none'
+                    ]">
+                  <datalist id="gales-presets">
+                    <option value="[]">Sin Gale ([])</option>
+                    <option value="[1]">1 Gale ([1])</option>
+                    <option value="[2]">2 Gales ([2])</option>
+                    <option value="[1, 2]">Pasos 1 y 2 ([1, 2])</option>
+                  </datalist>
+                </div>
+
+                <!-- Template Associated -->
+                <div class="flex items-center">
+                  <input 
+                    type="text" 
+                    v-model="validation.template_name" 
+                    placeholder="Plantilla (opcional)"
+                    class="w-full bg-dark-900 border border-dark-700 rounded px-2 py-1 text-[11px] text-gray-300 focus:outline-none focus:border-blue-500">
+                </div>
+
+              </div>
+
+              <!-- TEXTAREA FOR GROUND TRUTH JSON -->
+              <div class="flex-1 flex flex-col">
+                <div class="flex items-center justify-between mb-1.5 text-xs">
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-gray-300">JSON Verdadero:</span>
+                    <span v-if="isJsonValid" class="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
+                      <i class="fa-solid fa-check"></i> Válido
+                    </span>
+                    <span v-else class="text-[10px] text-rose-400 font-semibold flex items-center gap-1">
+                      <i class="fa-solid fa-triangle-exclamation"></i> Error sintaxis
+                    </span>
+                  </div>
+
+                  <!-- Helper Toolbar -->
+                  <div class="flex items-center gap-1.5">
+                    <div class="flex items-center gap-1 mr-1 bg-dark-900/80 px-1.5 py-0.5 rounded border border-dark-700 text-[10px]">
+                      <span class="text-gray-400">Gale rápido:</span>
+                      <button @click="setQuickGales('[]')" :class="defaultGalesInput.trim() === '[]' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'" class="px-1 rounded font-mono transition">[]</button>
+                      <button @click="setQuickGales('[1]')" :class="defaultGalesInput.trim() === '[1]' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'" class="px-1 rounded font-mono transition">[1]</button>
+                      <button @click="setQuickGales('[2]')" :class="defaultGalesInput.trim() === '[2]' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'" class="px-1 rounded font-mono transition">[2]</button>
+                    </div>
+                    <button 
+                      @click="beautifyJson" 
+                      title="Formatear JSON"
+                      class="px-2 py-0.5 bg-dark-800 hover:bg-dark-700 text-gray-300 rounded border border-dark-700 transition text-[11px]">
+                      <i class="fa-solid fa-wand-magic"></i> Formatear
+                    </button>
+                    <button 
+                      @click="clearJson" 
+                      class="px-2 py-0.5 bg-dark-800 hover:bg-dark-700 text-gray-300 rounded border border-dark-700 transition text-[11px]">
+                      Limpiar ([])
+                    </button>
+                  </div>
+                </div>
+
+                <textarea 
+                  v-model="validation.ground_truth_json" 
+                  rows="7" 
+                  placeholder='Introduce o edita aquí el JSON con la información real de las señales...'
+                  class="w-full flex-1 min-h-[140px] max-h-[180px] bg-dark-900 border border-dark-700 rounded-lg p-2.5 text-xs font-mono text-blue-300 focus:outline-none focus:border-blue-500 transition leading-relaxed"></textarea>
+              </div>
+
+              <!-- SAVE BUTTON & TOAST -->
+              <div class="flex items-center justify-between pt-1">
+                <span class="text-[10px] text-gray-500 font-mono">
+                  Atajo: <kbd class="px-1 py-0.5 rounded bg-dark-800 border border-dark-700 text-gray-400 font-mono">Cmd/Ctrl + Enter</kbd>
+                </span>
+
+                <div class="flex items-center gap-2">
+                  <span v-if="saveMessage" class="text-xs text-emerald-400 font-medium transition">
+                    <i class="fa-solid fa-circle-check"></i> {{ saveMessage }}
+                  </span>
+                  
+                  <button 
+                    @click="saveValidation"
+                    :disabled="saving || !isJsonValid"
+                    class="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold px-4 py-1.5 rounded-lg shadow-md flex items-center gap-1.5 transition duration-150 text-xs">
+                    <i class="fa-solid fa-floppy-disk" :class="{'fa-spin': saving}"></i>
+                    <span>Guardar Validación en BD</span>
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+
+          <!-- ROW 2: PARSERS COMPARISON: parse_template vs parse_signal -->
+          <div class="grid grid-cols-2 gap-4">
+            
+            <!-- PARSE_TEMPLATE CARD -->
+            <div class="bg-dark-850 border border-dark-700 rounded-xl p-4 shadow-sm flex flex-col">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
+                  <i class="fa-solid fa-cubes"></i> parse_template (Rust)
+                </span>
+                <span v-if="parseResult.match_score !== null" class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                  {{ parseResult.match_score }}% Match
+                </span>
+              </div>
+
+              <!-- Template selector -->
+              <div class="mb-2 flex items-center gap-2">
+                <select 
+                  v-model="selectedTemplateId" 
+                  @change="runParse"
+                  class="flex-1 bg-dark-800 border border-dark-700 rounded-lg px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500">
+                  <option :value="null">✨ Auto-detectar mejor template ({{ templates.length }})</option>
+                  <option v-for="t in templates" :key="t.id" :value="t.id">
+                    {{ t.name }}
+                  </option>
+                </select>
+                <button 
+                  @click="runParse" 
+                  title="Re-ejecutar análisis"
+                  class="px-2 py-1 bg-dark-800 hover:bg-dark-700 border border-dark-700 rounded-lg text-xs text-gray-300">
+                  <i class="fa-solid fa-arrows-rotate" :class="{'fa-spin': parsing}"></i>
+                </button>
+              </div>
+
+              <!-- JSON Viewer -->
+              <div class="flex-1 min-h-[160px] max-h-[220px] bg-dark-900/90 border border-dark-750 rounded-lg p-2.5 overflow-y-auto font-mono text-[11px] text-gray-300 select-text">
+                <div v-if="parsing" class="text-center py-8 text-gray-500 text-xs">
+                  <i class="fa-solid fa-spinner fa-spin text-blue-400"></i> Analizando con parse_template...
+                </div>
+                <pre v-else-if="parseResult.parse_template_json" class="whitespace-pre-wrap">{{ parseResult.parse_template_json }}</pre>
+                <div v-else class="text-center py-8 text-gray-500 text-xs">
+                  No hubo coincidencia con ninguna plantilla.
+                </div>
+              </div>
+
+              <!-- Actions -->
+              <div class="mt-2 flex items-center justify-between text-[11px]">
+                <span class="text-gray-500 font-mono">{{ parseResult.parse_template_us }} µs</span>
+                <button 
+                  v-if="parseResult.parse_template_json"
+                  @click="useAsGroundTruth(parseResult.parse_template_json)"
+                  class="bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 px-2.5 py-1 rounded-lg font-medium transition flex items-center gap-1">
+                  <i class="fa-solid fa-arrow-down"></i> Usar como Ground Truth
+                </button>
+              </div>
+            </div>
+
+            <!-- PARSE_SIGNAL CARD -->
+            <div class="bg-dark-850 border border-dark-700 rounded-xl p-4 shadow-sm flex flex-col">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
+                  <i class="fa-solid fa-wand-magic-sparkles"></i> parse_signal (Rust Core)
+                </span>
+                <span v-if="parseResult.detected_signal_count > 0" class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  {{ parseResult.detected_signal_count }} Señal(es)
+                </span>
+                <span v-else class="text-[10px] px-2 py-0.5 rounded-full bg-dark-700 text-gray-400">
+                  Sin señal detectada
+                </span>
+              </div>
+
+              <div class="mb-2 text-xs text-gray-400 h-[26px] flex items-center">
+                <span>Motor autónomo de tokenización y extracción</span>
+              </div>
+
+              <!-- JSON Viewer -->
+              <div class="flex-1 min-h-[160px] max-h-[220px] bg-dark-900/90 border border-dark-750 rounded-lg p-2.5 overflow-y-auto font-mono text-[11px] text-gray-300 select-text">
+                <div v-if="parsing" class="text-center py-8 text-gray-500 text-xs">
+                  <i class="fa-solid fa-spinner fa-spin text-emerald-400"></i> Analizando con parse_signal...
+                </div>
+                <pre v-else-if="parseResult.parse_signal_json" class="whitespace-pre-wrap">{{ parseResult.parse_signal_json }}</pre>
+                <div v-else class="text-center py-8 text-gray-500 text-xs">
+                  No se detectaron tokens de señales.
+                </div>
+              </div>
+
+              <!-- Actions -->
+              <div class="mt-2 flex items-center justify-between text-[11px]">
+                <span class="text-gray-500 font-mono">{{ parseResult.parse_signal_us }} µs</span>
+                <button 
+                  v-if="parseResult.parse_signal_json"
+                  @click="useAsGroundTruth(parseResult.parse_signal_json)"
+                  class="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-lg font-medium transition flex items-center gap-1">
+                  <i class="fa-solid fa-arrow-down"></i> Usar como Ground Truth
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- EXPORT TEST FILE MODAL -->
+    <div v-if="showExportModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div class="bg-dark-850 border border-dark-700 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-base font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-file-code text-blue-400"></i> Exportar Archivo de Pruebas
+          </h3>
+          <button @click="showExportModal = false" class="text-gray-400 hover:text-white">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <p class="text-xs text-gray-400 leading-relaxed">
+          Genera un archivo JSON con los datos validados como Ground Truth para ejecutar suites de tests en Pytest y validar futuras funciones de plantillas.
+        </p>
+
+        <div class="space-y-3 bg-dark-800 p-3.5 rounded-lg border border-dark-700 text-xs">
+          <div>
+            <label class="block text-gray-300 font-medium mb-1">Formato de Exportación:</label>
+            <select v-model="exportOptions.format" class="w-full bg-dark-900 border border-dark-700 rounded p-2 text-white">
+              <option value="suite">Formato Suite Completa (metadata + casos)</option>
+              <option value="signals_json">Formato signals.json (Compatible con test_signals_json.py)</option>
+            </select>
+          </div>
+
+          <label class="flex items-center gap-2 cursor-pointer pt-1">
+            <input type="checkbox" v-model="exportOptions.only_signals" class="rounded bg-dark-900 border-dark-700 text-blue-600">
+            <span class="text-gray-300">Exportar solo mensajes marcados con señal</span>
+          </label>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button @click="showExportModal = false" class="px-4 py-2 bg-dark-800 hover:bg-dark-700 text-gray-300 rounded-lg text-xs">
+            Cancelar
+          </button>
+          <a 
+            :href="getExportUrl()" 
+            @click="showExportModal = false"
+            target="_blank"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg text-xs flex items-center gap-2 shadow">
+            <i class="fa-solid fa-download"></i> Descargar y Guardar en /data
+          </a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- VUE APPLICATION LOGIC -->
+  <script>
+    const { createApp, ref, reactive, computed, onMounted } = Vue;
+
+    createApp({
+      setup() {
+        const stats = ref({});
+        const messages = ref([]);
+        const templates = ref([]);
+        const senders = ref([]);
+        const currentMessage = ref(null);
+        const selectedIds = ref([]);
+        const loadingMessages = ref(false);
+        const parsing = ref(false);
+        const saving = ref(false);
+        const saveMessage = ref('');
+        const autoAdvance = ref(true);
+        const selectedTemplateId = ref(null);
+        const showExportModal = ref(false);
+        const defaultGalesInput = ref(localStorage.getItem('validator_default_gales') || '[]');
+
+        const pagination = reactive({
+          page: 1,
+          pageSize: 50,
+          total: 0,
+          totalPages: 1
+        });
+
+        const filters = reactive({
+          search: '',
+          sender_name: '',
+          status: 'all'
+        });
+
+        const parseResult = reactive({
+          parse_template_json: null,
+          parse_template_us: 0,
+          parse_signal_json: null,
+          parse_signal_us: 0,
+          matched_template_id: null,
+          matched_template_name: null,
+          match_score: null,
+          detected_signal_count: 0
+        });
+
+        const validation = reactive({
+          is_signal: true,
+          signals_count: 1,
+          template_name: '',
+          ground_truth_json: '[]'
+        });
+
+        const exportOptions = reactive({
+          format: 'suite',
+          only_signals: false
+        });
+
+        const isDefaultGalesValid = computed(() => {
+          try {
+            const parsed = JSON.parse(defaultGalesInput.value);
+            return Array.isArray(parsed);
+          } catch {
+            return false;
+          }
+        });
+
+        function getDefaultGalesArray() {
+          try {
+            const parsed = JSON.parse(defaultGalesInput.value);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        }
+
+        function applyDefaultGalesToSignals(sigs, forceOverwrite = false) {
+          const defaultGales = getDefaultGalesArray();
+          const normalizeSignal = (sig) => {
+            if (!sig || typeof sig !== 'object' || Array.isArray(sig)) return sig;
+            const currentGales = Array.isArray(sig.gales) ? sig.gales : [];
+            const nextGales = (forceOverwrite || !Array.isArray(sig.gales) || currentGales.length === 0)
+              ? [...defaultGales]
+              : currentGales;
+            return {
+              ...sig,
+              gales: nextGales
+            };
+          };
+
+          if (Array.isArray(sigs)) {
+            return sigs.map(normalizeSignal);
+          } else if (sigs && typeof sigs === 'object') {
+            return normalizeSignal(sigs);
+          }
+          return sigs;
+        }
+
+        function applyDefaultGalesToParserJson(jsonStr) {
+          if (!jsonStr) return jsonStr;
+          try {
+            const parsed = JSON.parse(jsonStr);
+            if (Array.isArray(parsed)) {
+              return JSON.stringify(applyDefaultGalesToSignals(parsed, false), null, 2);
+            } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.signals)) {
+              return JSON.stringify({
+                ...parsed,
+                signals: applyDefaultGalesToSignals(parsed.signals, false)
+              }, null, 2);
+            }
+            return jsonStr;
+          } catch {
+            return jsonStr;
+          }
+        }
+
+        function onDefaultGalesChange() {
+          if (!isDefaultGalesValid.value) return;
+          localStorage.setItem('validator_default_gales', defaultGalesInput.value.trim());
+
+          // Update displayed Ground Truth JSON automatically
+          try {
+            const parsed = JSON.parse(validation.ground_truth_json);
+            const updated = applyDefaultGalesToSignals(parsed, true);
+            validation.ground_truth_json = JSON.stringify(updated, null, 2);
+          } catch {
+            // Ignore if current ground truth JSON has syntax errors
+          }
+
+          // Also refresh parser JSON displays if they have empty gales
+          if (parseResult.parse_template_json) {
+            parseResult.parse_template_json = applyDefaultGalesToParserJson(parseResult.parse_template_json);
+          }
+          if (parseResult.parse_signal_json) {
+            parseResult.parse_signal_json = applyDefaultGalesToParserJson(parseResult.parse_signal_json);
+          }
+        }
+
+        function setQuickGales(val) {
+          defaultGalesInput.value = val;
+          onDefaultGalesChange();
+        }
+
+        const isJsonValid = computed(() => {
+          try {
+            JSON.parse(validation.ground_truth_json);
+            return true;
+          } catch (e) {
+            return false;
+          }
+        });
+
+        const isAllSelected = computed(() => {
+          return messages.value.length > 0 && selectedIds.value.length === messages.value.length;
+        });
+
+        let searchTimeout = null;
+        function debounceSearch() {
+          clearTimeout(searchTimeout);
+          searchTimeout = setTimeout(() => {
+            loadMessages(1);
+          }, 350);
+        }
+
+        async function loadStats() {
+          try {
+            const res = await fetch('/api/v1/validator/stats');
+            stats.value = await res.json();
+          } catch (e) {
+            console.error('Error loading stats:', e);
+          }
+        }
+
+        async function loadSenders() {
+          try {
+            const res = await fetch('/api/v1/validator/senders');
+            senders.value = await res.json();
+          } catch (e) {
+            console.error('Error loading senders:', e);
+          }
+        }
+
+        async function loadTemplates() {
+          try {
+            const res = await fetch('/api/v1/validator/templates');
+            templates.value = await res.json();
+          } catch (e) {
+            console.error('Error loading templates:', e);
+          }
+        }
+
+        async function loadMessages(page = pagination.page) {
+          loadingMessages.value = true;
+          try {
+            const params = new URLSearchParams({
+              page: page,
+              page_size: pagination.pageSize,
+              status: filters.status,
+            });
+            if (filters.sender_name) params.append('sender_name', filters.sender_name);
+            if (filters.search) params.append('search', filters.search);
+
+            const res = await fetch(`/api/v1/validator/messages?${params.toString()}`);
+            const data = await res.json();
+            messages.value = data.items;
+            pagination.page = data.page;
+            pagination.total = data.total;
+            pagination.totalPages = data.total_pages;
+
+            if (messages.value.length > 0 && (!currentMessage.value || !messages.value.find(m => m.id === currentMessage.value.id))) {
+              selectMessage(messages.value[0]);
+            }
+          } catch (e) {
+            console.error('Error loading messages:', e);
+          } finally {
+            loadingMessages.value = false;
+          }
+        }
+
+        function setStatusFilter(status) {
+          filters.status = status;
+          loadMessages(1);
+        }
+
+        function changePage(newPage) {
+          if (newPage >= 1 && newPage <= pagination.totalPages) {
+            loadMessages(newPage);
+          }
+        }
+
+        function toggleSelectAll() {
+          if (isAllSelected.value) {
+            selectedIds.value = [];
+          } else {
+            selectedIds.value = messages.value.map(m => m.id);
+          }
+        }
+
+        async function selectMessage(msg) {
+          currentMessage.value = msg;
+          selectedTemplateId.value = null;
+
+          // If message was already validated, load existing ground truth
+          if (msg.is_validated && msg.ground_truth_json) {
+            validation.is_signal = msg.is_signal ?? true;
+            validation.signals_count = msg.signals_count ?? 1;
+            validation.template_name = '';
+            try {
+              const parsed = JSON.parse(msg.ground_truth_json);
+              const sigs = parsed.signals ? parsed.signals : parsed;
+              const normalized = applyDefaultGalesToSignals(sigs, false);
+              validation.ground_truth_json = JSON.stringify(normalized, null, 2);
+            } catch {
+              validation.ground_truth_json = msg.ground_truth_json;
+            }
+          } else {
+            // New message: defaults
+            validation.is_signal = true;
+            validation.signals_count = 1;
+            validation.template_name = '';
+            validation.ground_truth_json = '[]';
+          }
+
+          // Trigger live parser
+          await runParse();
+        }
+
+        async function runParse() {
+          if (!currentMessage.value) return;
+          parsing.value = true;
+          try {
+            const payload = {
+              text: currentMessage.value.raw_text,
+              template_id: selectedTemplateId.value
+            };
+            const res = await fetch('/api/v1/validator/parse', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.parse_template_json) {
+              data.parse_template_json = applyDefaultGalesToParserJson(data.parse_template_json);
+            }
+            if (data.parse_signal_json) {
+              data.parse_signal_json = applyDefaultGalesToParserJson(data.parse_signal_json);
+            }
+            Object.assign(parseResult, data);
+
+            // If not previously validated, pre-populate Ground Truth automatically
+            if (!currentMessage.value.is_validated) {
+              if (data.detected_signal_count > 0 || (data.match_score && data.match_score > 50)) {
+                validation.is_signal = true;
+                validation.signals_count = data.detected_signal_count || 1;
+                validation.template_name = data.matched_template_name || '';
+
+                // Prefer parse_template if match_score is high, else parse_signal
+                const candidateJson = (data.match_score >= 80 && data.parse_template_json) 
+                  ? data.parse_template_json 
+                  : (data.parse_signal_json || '[]');
+                
+                // Format signals cleanly and inject default gales list
+                try {
+                  const parsed = JSON.parse(candidateJson);
+                  const sigs = parsed.signals ? parsed.signals : parsed;
+                  const withGales = applyDefaultGalesToSignals(sigs, false);
+                  validation.ground_truth_json = JSON.stringify(withGales, null, 2);
+                } catch {
+                  validation.ground_truth_json = candidateJson;
+                }
+              } else {
+                // Detected as non-signal
+                validation.is_signal = false;
+                validation.signals_count = 0;
+                validation.template_name = '';
+                validation.ground_truth_json = '[]';
+              }
+            }
+          } catch (e) {
+            console.error('Error running parse:', e);
+          } finally {
+            parsing.value = false;
+          }
+        }
+
+        function onSignalCheckboxChange() {
+          if (!validation.is_signal) {
+            validation.signals_count = 0;
+            validation.ground_truth_json = '[]';
+          } else {
+            if (validation.signals_count === 0) validation.signals_count = 1;
+            try {
+              const parsed = JSON.parse(validation.ground_truth_json);
+              if (Array.isArray(parsed) && parsed.length === 0) {
+                const candidateJson = (parseResult.match_score >= 80 && parseResult.parse_template_json)
+                  ? parseResult.parse_template_json
+                  : parseResult.parse_signal_json;
+                if (candidateJson) {
+                  const candParsed = JSON.parse(candidateJson);
+                  const sigs = candParsed.signals ? candParsed.signals : candParsed;
+                  validation.ground_truth_json = JSON.stringify(applyDefaultGalesToSignals(sigs, false), null, 2);
+                } else {
+                  validation.ground_truth_json = JSON.stringify([
+                    {
+                      action: true,
+                      target: { PeriodTime: "M5" },
+                      symbol: { symbol_type: { Forex: "" }, symbol_class: null },
+                      entry: { TimeEntry: ["", ""] },
+                      gales: getDefaultGalesArray()
+                    }
+                  ], null, 2);
+                }
+              }
+            } catch {
+              // Ignore invalid JSON
+            }
+          }
+        }
+
+        function useAsGroundTruth(jsonStr) {
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const sigs = parsed.signals ? parsed.signals : parsed;
+            const withGales = applyDefaultGalesToSignals(sigs, false);
+            validation.ground_truth_json = JSON.stringify(withGales, null, 2);
+            validation.is_signal = true;
+            if (Array.isArray(withGales)) {
+              validation.signals_count = withGales.length;
+            } else {
+              validation.signals_count = 1;
+            }
+          } catch {
+            validation.ground_truth_json = jsonStr;
+          }
+        }
+
+        function beautifyJson() {
+          try {
+            const parsed = JSON.parse(validation.ground_truth_json);
+            const withGales = applyDefaultGalesToSignals(parsed, false);
+            validation.ground_truth_json = JSON.stringify(withGales, null, 2);
+          } catch (e) {
+            alert('El JSON contiene errores de sintaxis y no pudo formatearse: ' + e.message);
+          }
+        }
+
+        function clearJson() {
+          validation.ground_truth_json = '[]';
+          validation.signals_count = 0;
+          validation.is_signal = false;
+        }
+
+        async function saveValidation() {
+          if (!currentMessage.value || !isJsonValid.value) return;
+          saving.value = true;
+          saveMessage.value = '';
+
+          try {
+            // Ensure gales property is present on all signals before saving
+            try {
+              const parsedGt = JSON.parse(validation.ground_truth_json);
+              validation.ground_truth_json = JSON.stringify(applyDefaultGalesToSignals(parsedGt, false), null, 2);
+            } catch {
+              // Keep as is
+            }
+
+            const payload = {
+              message_id: currentMessage.value.id,
+              is_signal: validation.is_signal,
+              signals_count: validation.signals_count,
+              ground_truth_json: validation.ground_truth_json,
+              parse_template_json: parseResult.parse_template_json,
+              parse_signal_json: parseResult.parse_signal_json,
+              template_id: parseResult.matched_template_id,
+              template_name: validation.template_name || parseResult.matched_template_name,
+            };
+
+            const res = await fetch('/api/v1/validator/validate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) throw new Error(await res.text());
+
+            // Update in-memory state
+            currentMessage.value.is_validated = true;
+            currentMessage.value.is_signal = validation.is_signal;
+            currentMessage.value.signals_count = validation.signals_count;
+            currentMessage.value.ground_truth_json = validation.ground_truth_json;
+
+            saveMessage.value = '¡Guardado correctamente!';
+            await loadStats();
+
+            setTimeout(() => { saveMessage.value = ''; }, 2500);
+
+            // Auto-advance if enabled
+            if (autoAdvance.value) {
+              navMessage(1);
+            }
+          } catch (e) {
+            alert('Error guardando validación: ' + e.message);
+          } finally {
+            saving.value = false;
+          }
+        }
+
+        async function batchMarkNoSignal() {
+          if (selectedIds.value.length === 0) return;
+          if (!confirm(`¿Marcar ${selectedIds.value.length} mensaje(s) seleccionados como SIN SEÑAL?`)) return;
+
+          try {
+            const payload = {
+              message_ids: selectedIds.value,
+              is_signal: false,
+              signals_count: 0,
+              ground_truth_json: '[]'
+            };
+            const res = await fetch('/api/v1/validator/batch-validate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            alert(`Se actualizaron ${data.updated_count} mensajes correctamente.`);
+            selectedIds.value = [];
+            await loadStats();
+            await loadMessages();
+          } catch (e) {
+            alert('Error en validación por lote: ' + e.message);
+          }
+        }
+
+        function navMessage(direction) {
+          if (!currentMessage.value || messages.value.length === 0) return;
+          const idx = messages.value.findIndex(m => m.id === currentMessage.value.id);
+          const nextIdx = idx + direction;
+          if (nextIdx >= 0 && nextIdx < messages.value.length) {
+            selectMessage(messages.value[nextIdx]);
+          } else if (direction > 0 && pagination.page < pagination.totalPages) {
+            changePage(pagination.page + 1);
+          }
+        }
+
+        function copyToClipboard(text, msg = 'Copiado') {
+          navigator.clipboard.writeText(text);
+          saveMessage.value = msg;
+          setTimeout(() => { saveMessage.value = ''; }, 2000);
+        }
+
+        function formatDate(str) {
+          if (!str) return '';
+          try {
+            return str.replace('T', ' ').substring(0, 16);
+          } catch {
+            return str;
+          }
+        }
+
+        function openExportModal() {
+          showExportModal.value = true;
+        }
+
+        function getExportUrl() {
+          const params = new URLSearchParams({
+            format: exportOptions.format,
+            only_signals: exportOptions.only_signals
+          });
+          return `/api/v1/validator/export-tests?${params.toString()}`;
+        }
+
+        // Global Keyboard Shortcuts
+        window.addEventListener('keydown', (e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            saveValidation();
+          } else if (e.altKey && e.key === 'ArrowRight') {
+            e.preventDefault();
+            navMessage(1);
+          } else if (e.altKey && e.key === 'ArrowLeft') {
+            e.preventDefault();
+            navMessage(-1);
+          }
+        });
+
+        onMounted(async () => {
+          await loadStats();
+          await loadSenders();
+          await loadTemplates();
+          await loadMessages(1);
+        });
+
+        return {
+          stats,
+          messages,
+          templates,
+          senders,
+          currentMessage,
+          selectedIds,
+          loadingMessages,
+          parsing,
+          saving,
+          saveMessage,
+          autoAdvance,
+          selectedTemplateId,
+          showExportModal,
+          defaultGalesInput,
+          isDefaultGalesValid,
+          pagination,
+          filters,
+          parseResult,
+          validation,
+          exportOptions,
+          isJsonValid,
+          isAllSelected,
+          onDefaultGalesChange,
+          setQuickGales,
+          debounceSearch,
+          loadMessages,
+          setStatusFilter,
+          changePage,
+          toggleSelectAll,
+          selectMessage,
+          runParse,
+          onSignalCheckboxChange,
+          useAsGroundTruth,
+          beautifyJson,
+          clearJson,
+          saveValidation,
+          batchMarkNoSignal,
+          navMessage,
+          copyToClipboard,
+          formatDate,
+          openExportModal,
+          getExportUrl
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

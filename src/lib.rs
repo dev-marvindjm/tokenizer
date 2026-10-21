@@ -14,6 +14,8 @@ fn rust_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<templates::ParsedSignal>()?;
     m.add_function(wrap_pyfunction!(tokenizer::tokenize_text, m)?)?;
     m.add_function(wrap_pyfunction!(templates::match_template, m)?)?;
+    m.add_function(wrap_pyfunction!(templates::parse_template_json, m)?)?;
+    m.add_function(wrap_pyfunction!(templates::parse_signal_json, m)?)?;
     m.add_function(wrap_pyfunction!(entities::extract_entities, m)?)?;
     Ok(())
 }
