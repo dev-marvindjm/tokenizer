@@ -1199,11 +1199,1109 @@ fn is_line_match(orig_line: &str, mod_line: &str) -> bool {
     }
 }
 
+#[derive(Debug, Clone)]
+enum TemplateSegment {
+    Literal(String),
+    Tag(String),
+}
+
+fn collapse_spaces(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_space = false;
+    for c in s.chars() {
+        if c.is_whitespace() || c == '\u{00a0}' {
+            if !prev_space {
+                out.push(' ');
+                prev_space = true;
+            }
+        } else {
+            out.push(c);
+            prev_space = false;
+        }
+    }
+    out
+}
+
+fn is_tp_template_line(tpl_line: &str) -> bool {
+    if tpl_line.contains("$(profit_price)") || tpl_line.contains("$(profit)") || tpl_line.contains("$(index)") {
+        return true;
+    }
+    if tpl_line.contains("$(") {
+        let checkers = get_nodes_ref("checkers");
+        for (name, tok) in tpl_line.iter_tokens() {
+            if !tok.contains("$(") && !tok.trim().is_empty() {
+                let (flags, tc) = get_flags_and_token_class(tok.as_str(), name, checkers);
+                if tc == TokenClass::Target && flags.contains(TokenFlags::VALUE_UP) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn is_main_template_line(tpl_line: &str) -> bool {
+    let req = TemplateRequirements::from_pattern(tpl_line);
+    req.has_symbol && req.has_action && (req.has_entry || req.has_time)
+}
+
+fn remove_ci_substring(haystack: &str, needle_lower: &str) -> String {
+    let mut result = haystack.to_string();
+    loop {
+        let lower = result.to_lowercase();
+        if let Some(pos) = lower.find(needle_lower) {
+            let end = pos + needle_lower.len();
+            if result.is_char_boundary(pos) && result.is_char_boundary(end) {
+                result.replace_range(pos..end, "");
+                continue;
+            }
+        }
+        break;
+    }
+    result
+}
+
+fn normalize_tp_index_in_template(tpl_line: &str) -> String {
+    let mut s = tpl_line.replace("$(profit_price)1", "TP$(index)");
+    let lower = s.to_lowercase();
+    if let Some(tp_pos) = lower.find("tp") {
+        let after_tp = tp_pos + 2;
+        let rem = &s[after_tp..];
+        // Caso: TP.$(dismiss). o TP.1. o TP.$(index).
+        let rem_trim_start = rem.trim_start_matches(|c: char| c == ' ' || c == '\u{00a0}');
+        let ws_len = rem.len() - rem_trim_start.len();
+        if rem_trim_start.starts_with('.') {
+            let after_dot = &rem_trim_start[1..];
+            if let Some(rest) = after_dot.strip_prefix("$(dismiss).")
+                .or_else(|| after_dot.strip_prefix("$(index)."))
+            {
+                s = format!("{}TP.$(index).{}", &s[..tp_pos], rest);
+                return s;
+            }
+            let digits_len = after_dot.chars().take_while(|c| c.is_ascii_digit()).count();
+            if digits_len > 0 && after_dot[digits_len..].starts_with('.') {
+                let rest = &after_dot[digits_len + 1..];
+                s = format!("{}TP.$(index).{}", &s[..tp_pos], rest);
+                return s;
+            }
+        }
+        // Caso: TP $(dismiss) / TP$(dismiss) / TP $(index) / TP$(index)
+        if let Some(rest) = rem_trim_start.strip_prefix("$(dismiss)")
+            .or_else(|| rem_trim_start.strip_prefix("$(index)"))
+        {
+            s = format!("{}{}$(index){}", &s[..tp_pos], &s[tp_pos..after_tp], rest);
+            return s;
+        }
+        // Caso: TP1: / TP 1: / Tp2- / Tp-
+        let digits_len = rem_trim_start.chars().take_while(|c| c.is_ascii_digit()).count();
+        if digits_len > 0 {
+            let rest = &rem_trim_start[digits_len..];
+            s = format!("{}{}$(index){}", &s[..tp_pos], &s[tp_pos..after_tp], rest);
+            return s;
+        } else if ws_len == 0 && rem_trim_start.starts_with('-') {
+            s = format!("{}{}$(index){}", &s[..tp_pos], &s[tp_pos..after_tp], rem_trim_start);
+            return s;
+        }
+    }
+    s
+}
+
+fn preprocess_template_line(tpl_line: &str, orig_line: &str) -> String {
+    let mut t = collapse_spaces(tpl_line.trim());
+    let orig_has_otc = orig_line.to_lowercase().contains("otc");
+
+    // Regla 2: Si el texto original no contiene "otc" (en cualquier case),
+    // obviar completamente $(otc) de los cálculos y extracción.
+    if !orig_has_otc && t.to_lowercase().contains("$(otc)") {
+        t = remove_ci_substring(&t, "($(otc))");
+        t = remove_ci_substring(&t, "-$(otc)");
+        t = remove_ci_substring(&t, "_$(otc)");
+        t = remove_ci_substring(&t, "$(otc)");
+        t = collapse_spaces(t.trim());
+    }
+
+    // Regla 3: Normalizar índice de Take Profit (TP$(index) / TP$(dismiss) / TP1)
+    if is_tp_template_line(&t) {
+        t = normalize_tp_index_in_template(&t);
+    }
+
+    t
+}
+
+fn parse_template_segments(tpl_line: &str) -> Vec<TemplateSegment> {
+    let mut segments = Vec::new();
+    let mut rem = tpl_line;
+    while let Some(start) = rem.find("$(") {
+        if let Some(rel_end) = rem[start + 2..].find(')') {
+            if start > 0 {
+                segments.push(TemplateSegment::Literal(rem[..start].to_string()));
+            }
+            let label = &rem[start + 2..start + 2 + rel_end];
+            segments.push(TemplateSegment::Tag(label.to_string()));
+            rem = &rem[start + 2 + rel_end + 1..];
+        } else {
+            break;
+        }
+    }
+    if !rem.is_empty() {
+        segments.push(TemplateSegment::Literal(rem.to_string()));
+    }
+    segments
+}
+
+/// Busca `lit` dentro de `haystack` de forma case-insensitive y tolerante a espacios múltiples.
+/// Retorna `(start_byte_in_haystack, end_byte_in_haystack)`.
+fn find_literal_ci(haystack: &str, lit: &str, must_start_at_zero: bool) -> Option<(usize, usize)> {
+    if lit.is_empty() {
+        return Some((0, 0));
+    }
+    let lit_trimmed = lit.trim();
+    if lit_trimmed.is_empty() {
+        // El literal es solo espacio(s)
+        if must_start_at_zero {
+            let ws_bytes: usize = haystack.chars().take_while(|c| c.is_whitespace() || *c == '\u{00a0}').map(|c| c.len_utf8()).sum();
+            return if ws_bytes > 0 { Some((0, ws_bytes)) } else { None };
+        } else {
+            for (idx, c) in haystack.char_indices() {
+                if c.is_whitespace() || c == '\u{00a0}' {
+                    let ws_bytes: usize = haystack[idx..].chars().take_while(|ch| ch.is_whitespace() || *ch == '\u{00a0}').map(|ch| ch.len_utf8()).sum();
+                    return Some((idx, idx + ws_bytes));
+                }
+            }
+            return None;
+        }
+    }
+
+    let leading_ws = lit.starts_with(|c: char| c.is_whitespace() || c == '\u{00a0}');
+    let trailing_ws = lit.ends_with(|c: char| c.is_whitespace() || c == '\u{00a0}');
+
+    for strict_ws in [true, false] {
+        for (start_idx, _) in haystack.char_indices() {
+            if must_start_at_zero && start_idx > 0 {
+                break;
+            }
+            let mut h_idx = start_idx;
+            if leading_ws {
+                let ws: usize = haystack[h_idx..].chars().take_while(|c| c.is_whitespace() || *c == '\u{00a0}').map(|c| c.len_utf8()).sum();
+                if strict_ws && ws == 0 && start_idx > 0 {
+                    continue;
+                }
+                h_idx += ws;
+            }
+
+            let mut h_chars = haystack[h_idx..].char_indices().peekable();
+            let mut l_chars = lit_trimmed.chars().peekable();
+            let mut matched = true;
+            let mut end_idx = h_idx;
+
+            while let Some(lc) = l_chars.next() {
+                if lc.is_whitespace() || lc == '\u{00a0}' {
+                    while let Some(&nlc) = l_chars.peek() {
+                        if nlc.is_whitespace() || nlc == '\u{00a0}' {
+                            l_chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                    let mut consumed_ws = false;
+                    while let Some(&(rel_i, hc)) = h_chars.peek() {
+                        if hc.is_whitespace() || hc == '\u{00a0}' {
+                            consumed_ws = true;
+                            end_idx = h_idx + rel_i + hc.len_utf8();
+                            h_chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                    if !consumed_ws {
+                        matched = false;
+                        break;
+                    }
+                } else if let Some((rel_i, hc)) = h_chars.next() {
+                    if !lc.eq_ignore_ascii_case(&hc) && lc.to_lowercase().to_string() != hc.to_lowercase().to_string() {
+                        matched = false;
+                        break;
+                    }
+                    end_idx = h_idx + rel_i + hc.len_utf8();
+                } else {
+                    matched = false;
+                    break;
+                }
+            }
+
+            if matched {
+                if trailing_ws {
+                    let ws: usize = haystack[end_idx..].chars().take_while(|c| c.is_whitespace() || *c == '\u{00a0}').map(|c| c.len_utf8()).sum();
+                    if strict_ws && ws == 0 && end_idx < haystack.len() {
+                        continue;
+                    }
+                    end_idx += ws;
+                }
+                return Some((start_idx, end_idx));
+            }
+        }
+    }
+    None
+}
+
+fn is_indicator_line_match(orig_line: &str, tpl_line: &str) -> bool {
+    let checkers = get_nodes_ref("checkers");
+    let orig_toks: Vec<(&str, String)> = orig_line.iter_tokens().filter(|t| !t.1.trim().is_empty()).collect();
+    let tpl_toks: Vec<(&str, String)> = tpl_line.iter_tokens().filter(|t| !t.1.trim().is_empty()).collect();
+    if orig_toks.is_empty() || tpl_toks.is_empty() {
+        return false;
+    }
+    let mut has_indicator = false;
+    for (name, val) in &tpl_toks {
+        let (_, tc) = get_flags_and_token_class(val.as_str(), name, checkers);
+        if tc == TokenClass::Indicator {
+            has_indicator = true;
+            break;
+        }
+    }
+    if !has_indicator {
+        return false;
+    }
+    let orig_words: Vec<String> = orig_toks.iter()
+        .filter(|(n, v)| {
+            let (flags, tc) = get_flags_and_token_class(v.as_str(), n, checkers);
+            tc != TokenClass::Emoji && !flags.contains(TokenFlags::DIGIT)
+        })
+        .map(|(_, v)| v.to_lowercase())
+        .collect();
+    let tpl_words: Vec<String> = tpl_toks.iter()
+        .filter(|(n, v)| {
+            let (flags, tc) = get_flags_and_token_class(v.as_str(), n, checkers);
+            tc != TokenClass::Emoji && !flags.contains(TokenFlags::DIGIT)
+        })
+        .map(|(_, v)| v.to_lowercase())
+        .collect();
+    !tpl_words.is_empty() && orig_words == tpl_words
+}
+
+fn apply_template_label(
+    label: &str,
+    raw_val: &str,
+    signals: &mut Vec<Signal>,
+    current_signal: &mut Signal,
+    same_line_entry_count: &mut usize,
+) -> bool {
+    let orig_val = raw_val.trim();
+    let checkers = get_nodes_ref("checkers");
+    let symbols_nodes = get_nodes_ref("symbols");
+
+    match label {
+        "symbol" => {
+            if orig_val.is_empty() {
+                return false;
+            }
+            let lower_val = orig_val.to_lowercase();
+            let has_otc_in_val = lower_val.contains("otc");
+            let cleaned_for_sym = if has_otc_in_val {
+                let mut tmp = remove_ci_substring(orig_val, "(otc)");
+                tmp = remove_ci_substring(&tmp, "-otc");
+                tmp = remove_ci_substring(&tmp, "_otc");
+                tmp = remove_ci_substring(&tmp, "otc");
+                tmp.trim().to_string()
+            } else {
+                orig_val.to_string()
+            };
+
+            let mut currentsym = get_symbol_from_text(&cleaned_for_sym, symbols_nodes, checkers)
+                .or_else(|| get_symbol_from_text(orig_val, symbols_nodes, checkers));
+
+            if currentsym.is_none() {
+                // Intentar buscar en sub-tokens si viene acompañado (ej. "EUR/HUF OTC" o "#INJ/USDT")
+                for (_, tok) in cleaned_for_sym.iter_tokens() {
+                    let t_trim = tok.trim();
+                    if !t_trim.is_empty() && !t_trim.eq_ignore_ascii_case("otc") {
+                        if let Some(s) = get_symbol_from_text(t_trim, symbols_nodes, checkers) {
+                            currentsym = Some(s);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if let Some(ref mut sym) = currentsym {
+                if has_otc_in_val {
+                    sym.symbol_class = Some(SymbolClass::Otc);
+                }
+            }
+
+            if let Some(sym) = currentsym.as_ref() {
+                if let SymbolType::Plain(_) = sym.symbol_type {
+                    if current_signal.symbol.is_none() {
+                        current_signal.symbol = Some(sym.clone());
+                    }
+                    return true;
+                }
+            }
+
+            if current_signal.symbol.is_some()
+                && current_signal.action.is_some()
+                && (current_signal.entry.as_ref().map_or(false, |e| e.is_complete())
+                    || current_signal.target.as_ref().map_or(false, |t| t.is_complete()))
+            {
+                let prev = current_signal.clone();
+                signals.push(prev.clone());
+                *current_signal = Signal::default();
+                current_signal.copy_from(&prev);
+            }
+
+            if let Some(sym) = currentsym {
+                current_signal.symbol = Some(sym);
+                true
+            } else {
+                let clean_val = cleaned_for_sym.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '-');
+                if clean_val.len() >= 3 && clean_val.chars().any(|c| c.is_alphabetic()) {
+                    current_signal.symbol = Some(Symbol {
+                        symbol_type: SymbolType::Plain(clean_val.to_string()),
+                        symbol_class: if has_otc_in_val { Some(SymbolClass::Otc) } else { None },
+                    });
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+        "otc" => {
+            let (flags, tc) = get_flags_and_token_class(orig_val, "", checkers);
+            if tc != TokenClass::Otc && !orig_val.to_lowercase().contains("otc") && !flags.contains(TokenFlags::SYMBOL_NAME) {
+                return false;
+            }
+            if current_signal.symbol.is_none() {
+                current_signal.symbol = Some(Symbol {
+                    symbol_type: SymbolType::Plain(orig_val.to_string()),
+                    symbol_class: Some(SymbolClass::Otc),
+                });
+            } else if let Some(ref mut sym) = current_signal.symbol {
+                sym.symbol_class = Some(SymbolClass::Otc);
+            }
+            true
+        }
+        "action" => {
+            if orig_val.is_empty() {
+                return false;
+            }
+            let (flags, _) = get_flags_and_token_class(orig_val, "", checkers);
+            let mut detected_action = if flags.contains(TokenFlags::VALUE_UP) {
+                Some(true)
+            } else if flags.contains(TokenFlags::VALUE_DOWN) {
+                Some(false)
+            } else {
+                None
+            };
+
+            if detected_action.is_none() {
+                for (t_name, t_str) in orig_val.iter_tokens() {
+                    let (t_flags, _) = get_flags_and_token_class(t_str.trim(), t_name, checkers);
+                    if t_flags.contains(TokenFlags::VALUE_UP) {
+                        detected_action = Some(true);
+                        break;
+                    } else if t_flags.contains(TokenFlags::VALUE_DOWN) {
+                        detected_action = Some(false);
+                        break;
+                    }
+                }
+            }
+
+            if let Some(act) = detected_action {
+                if current_signal.action.is_none() || current_signal.symbol.is_none() {
+                    current_signal.action = Some(act);
+                }
+                true
+            } else if current_signal.action.is_some() && !orig_val.is_empty() {
+                // Línea secundaria de tendencia (ej. "🚦 Tend: neutral" cuando la acción principal ya fue extraída)
+                true
+            } else {
+                false
+            }
+        }
+        "period" => {
+            if orig_val.is_empty() {
+                return false;
+            }
+            if current_signal.is_complete() && current_signal.target.is_some() {
+                signals.push(current_signal.clone());
+                *current_signal = Signal::default();
+            }
+            current_signal.target = Some(Target::PeriodTime(orig_val.to_string()));
+            true
+        }
+        "period_digit" | "period_name" => {
+            if orig_val.is_empty() {
+                return false;
+            }
+            if let Some(Target::PeriodTime(ref mut pt)) = current_signal.target {
+                if pt.chars().all(|c| c.is_numeric()) {
+                    let prefix = orig_val.chars().next().map(|c| c.to_string().to_uppercase()).unwrap_or_default();
+                    *pt = prefix + pt;
+                } else if pt.chars().all(|c| c.is_alphabetic()) {
+                    pt.push_str(orig_val);
+                }
+            } else {
+                let val = if orig_val.chars().all(|c| c.is_numeric()) {
+                    orig_val.to_string()
+                } else if orig_val.chars().all(|c| c.is_alphabetic()) {
+                    orig_val.chars().next().map(|c| c.to_string().to_uppercase()).unwrap_or_default()
+                } else {
+                    orig_val.to_string()
+                };
+                current_signal.target = Some(Target::PeriodTime(val));
+            }
+            true
+        }
+        "timezone" => {
+            if orig_val.is_empty() {
+                return false;
+            }
+            let tz = orig_val.replace(' ', "");
+            current_signal.add_time_zone(tz);
+            true
+        }
+        "entry_time" | "time_entry" => {
+            if orig_val.is_empty() {
+                return false;
+            }
+            if current_signal.is_complete()
+                || (current_signal.entry.as_ref().map_or(false, |e| e.is_complete())
+                    && current_signal.symbol.is_some()
+                    && current_signal.action.is_some())
+            {
+                let prev = current_signal.clone();
+                signals.push(prev.clone());
+                *current_signal = Signal::default();
+                current_signal.copy_from(&prev);
+            }
+            let (flags, _) = get_flags_and_token_class(orig_val, "", checkers);
+            let normalized = if flags.contains(TokenFlags::SINGLE_QUOTATION) {
+                orig_val.replace('\'', ":")
+            } else {
+                orig_val.to_string()
+            };
+            let time_str = if normalized.contains(':') {
+                let parts: Vec<&str> = normalized.split(':').collect();
+                match parts.as_slice() {
+                    [h, m, s] => {
+                        let s_clean = s.trim_end_matches(|c: char| !c.is_ascii_digit());
+                        if let (Ok(h), Ok(m), Ok(s)) = (h.parse::<u32>(), m.parse::<u32>(), s_clean.parse::<u32>()) {
+                            format!("{:02}:{:02}:{:02}", h, m, s)
+                        } else {
+                             return false;
+                        }
+                    }
+                    [h, m] => {
+                        let m_clean = m.trim_end_matches(|c: char| !c.is_ascii_digit());
+                        if let (Ok(h), Ok(m)) = (h.parse::<u32>(), m_clean.parse::<u32>()) {
+                            format!("{:02}:{:02}:00", h, m)
+                        } else {
+                            return false;
+                        }
+                    }
+                    _ => return false,
+                }
+            } else {
+                return false;
+            };
+
+            if let Some(Entry::TimeEntry(ref tz, _)) = current_signal.entry {
+                current_signal.entry = Some(Entry::TimeEntry(tz.clone(), time_str));
+            } else if let Some(Entry::TimePrice(ref tz, _)) = current_signal.entry {
+                current_signal.entry = Some(Entry::TimeEntry(tz.clone(), time_str));
+            } else {
+                current_signal.entry = Some(Entry::TimeEntry(String::new(), time_str));
+            }
+            true
+        }
+        "entry_range" => {
+            let (flags, _) = get_flags_and_token_class(orig_val, "", checkers);
+            let range_str = if flags.contains(TokenFlags::COMMA) {
+                orig_val.replace(',', ".")
+            } else {
+                orig_val.to_string()
+            };
+            let range: Vec<&str> = range_str
+                .split(&['-', '/', '\\', '_'][..])
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if range.len() == 2 {
+                let p1 = range[0].parse::<f32>().unwrap_or(0.0);
+                let p2 = range[1].parse::<f32>().unwrap_or(0.0);
+                if p1 > 0.0 && p2 > 0.0 {
+                    current_signal.entry = Some(Entry::EntryRange(p1, p2));
+                    return true;
+                }
+            } else if let Ok(price) = range_str.trim().parse::<f32>() {
+                if price > 0.0 {
+                    if let Some(Entry::PriceEntry(p1)) = current_signal.entry {
+                        current_signal.entry = Some(Entry::EntryRange(p1, price));
+                    } else {
+                        current_signal.entry = Some(Entry::PriceEntry(price));
+                    }
+                    return true;
+                }
+            }
+            false
+        }
+        "entry_price" | "entry" | "price" => {
+            let (flags, _) = get_flags_and_token_class(orig_val, "", checkers);
+            let clean_num = if flags.contains(TokenFlags::COMMA) {
+                orig_val.replace(',', ".")
+            } else {
+                orig_val.to_string()
+            };
+            let price = clean_num.trim_matches(|c: char| !c.is_ascii_digit() && c != '.').parse::<f32>().unwrap_or(0.0);
+            if price > 0.0 {
+                *same_line_entry_count += 1;
+                if let Some(Entry::PriceEntry(p1)) = current_signal.entry {
+                    if *same_line_entry_count > 1 {
+                        current_signal.entry = Some(Entry::EntryRange(p1, price));
+                    }
+                } else if let Some(Entry::TimeEntry(ref tz, ref t)) = current_signal.entry {
+                    if t.is_empty() {
+                        current_signal.entry = Some(Entry::TimePrice(tz.clone(), price));
+                    }
+                } else if current_signal.entry.is_none() {
+                    current_signal.entry = Some(Entry::PriceEntry(price));
+                }
+                true
+            } else {
+                false
+            }
+        }
+        "profit_price" | "profit" => {
+            if orig_val.eq_ignore_ascii_case("open") {
+                if let Some(Target::ProfitLoss(ref mut pt)) = current_signal.target {
+                    pt.open = true;
+                } else {
+                    current_signal.target = Some(Target::ProfitLoss(PricesTarget {
+                        open: true,
+                        profits: vec![],
+                        stoploss: 0.0,
+                    }));
+                }
+                true
+            } else {
+                let (flags, _) = get_flags_and_token_class(orig_val, "", checkers);
+                let clean_num = if flags.contains(TokenFlags::COMMA) {
+                    orig_val.replace(',', ".")
+                } else {
+                    orig_val.to_string()
+                };
+                let price = clean_num.trim_matches(|c: char| !c.is_ascii_digit() && c != '.').parse::<f32>().unwrap_or(0.0);
+                if price > 0.0 {
+                    if let Some(Target::ProfitLoss(ref mut pt)) = current_signal.target {
+                        pt.profits.push(price);
+                    } else {
+                        current_signal.target = Some(Target::ProfitLoss(PricesTarget {
+                            open: false,
+                            profits: vec![price],
+                            stoploss: 0.0,
+                        }));
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+        "stoploss" => {
+            let (flags, tc) = get_flags_and_token_class(orig_val, "", checkers);
+            let clean_num = if flags.contains(TokenFlags::COMMA) {
+                orig_val.replace(',', ".")
+            } else {
+                orig_val.to_string()
+            };
+            let price = clean_num.trim_matches(|c: char| !c.is_ascii_digit() && c != '.').parse::<f32>().unwrap_or(0.0);
+            if price > 0.0 {
+                if let Some(Target::ProfitLoss(ref mut pt)) = current_signal.target {
+                    pt.stoploss = price;
+                } else {
+                    current_signal.target = Some(Target::ProfitLoss(PricesTarget {
+                        open: false,
+                        profits: vec![],
+                        stoploss: price,
+                    }));
+                }
+                true
+            } else {
+                // Si la plantilla etiquetó la palabra "SL" como $(stoploss) antes del precio
+                tc == TokenClass::Target && flags.contains(TokenFlags::VALUE_DOWN)
+            }
+        }
+        "gale" => {
+            let (flags, _) = get_flags_and_token_class(orig_val, "", checkers);
+            if let Ok(num) = orig_val.parse::<i8>() {
+                current_signal.gales.push(Gale::Number(num));
+                true
+            } else if flags.contains(TokenFlags::COLON) {
+                current_signal.gales.push(Gale::TimeEntry(orig_val.to_string()));
+                true
+            } else if flags.contains(TokenFlags::NEGATIVE) || orig_val.to_lowercase().contains("no") || orig_val == "0" {
+                current_signal.gales.push(Gale::NoGale);
+                true
+            } else if let Some(digit_char) = orig_val.chars().find(|c| c.is_ascii_digit()) {
+                if let Some(digit) = digit_char.to_digit(10) {
+                    current_signal.gales.push(Gale::Number(digit as i8));
+                    return true;
+                }
+                false
+            } else {
+                false
+            }
+        }
+        "index" => {
+            orig_val.is_empty() || orig_val.chars().all(|c| c.is_ascii_digit() || c == '.' || c.is_whitespace())
+        }
+        "indicator" | "date" | "custom" | "dismiss" | "variable" | "_" | _ => !orig_val.is_empty(),
+    }
+}
+
+fn match_and_extract_line(
+    orig_line: &str,
+    tpl_line: &str,
+    end_char_new_line: Option<bool>,
+    signals: &mut Vec<Signal>,
+    current_signal: &mut Signal,
+) -> Option<(usize, usize)> {
+    let o_clean = collapse_spaces(orig_line.trim());
+    let t_clean = preprocess_template_line(tpl_line, orig_line);
+
+    if t_clean.is_empty() {
+        return if o_clean.is_empty() { Some((0, 0)) } else { None };
+    }
+    if o_clean.is_empty() {
+        return None;
+    }
+
+    // Si la línea del template no tiene ninguna etiqueta $(etiqueta)
+    if !t_clean.contains("$(") {
+        if o_clean.eq_ignore_ascii_case(&t_clean) || o_clean.to_lowercase() == t_clean.to_lowercase() {
+            return Some((1, 1));
+        }
+        if is_indicator_line_match(&o_clean, &t_clean) {
+            return Some((1, 1));
+        }
+        return None;
+    }
+
+    let segments = parse_template_segments(&t_clean);
+    let mut pos = 0usize;
+    let mut total_items = 0usize;
+    let mut matched_items = 0usize;
+    let mut same_line_entry_count = 0usize;
+    let mut idx = 0usize;
+
+    while idx < segments.len() {
+        match &segments[idx] {
+            TemplateSegment::Literal(lit) => {
+                total_items += 1;
+                if let Some((m_start, m_end)) = find_literal_ci(&o_clean[pos..], lit, true) {
+                    if m_start == 0 {
+                        matched_items += 1;
+                        pos += m_end;
+                        idx += 1;
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+            }
+            TemplateSegment::Tag(_) => {
+                // Agrupar tags consecutivos sin literal intermedio (ej. $(period_digit)$(period_name))
+                let tag_start = idx;
+                while idx < segments.len() && matches!(segments[idx], TemplateSegment::Tag(_)) {
+                    idx += 1;
+                }
+                let tag_slice = &segments[tag_start..idx];
+
+                // Buscar el siguiente literal estático que delimita a este grupo de tags
+                let (captured, next_pos, lit_matched) = if idx < segments.len() {
+                    if let TemplateSegment::Literal(next_lit) = &segments[idx] {
+                        // Caso especial: si el único tag es $(index) y next_lit empieza después de dígitos opcionales
+                        if tag_slice.len() == 1 {
+                            if let TemplateSegment::Tag(lbl) = &tag_slice[0] {
+                                if lbl == "index" {
+                                    let rem = &o_clean[pos..];
+                                    let lead_ws: usize = rem
+                                        .chars()
+                                        .take_while(|c| *c == ' ' || *c == '\u{00a0}')
+                                        .map(|c| c.len_utf8())
+                                        .sum();
+                                    let digit_bytes: usize = rem[lead_ws..]
+                                        .chars()
+                                        .take_while(|c| c.is_ascii_digit())
+                                        .map(|c| c.len_utf8())
+                                        .sum();
+                                    let cand_with_digits = if digit_bytes > 0 { lead_ws + digit_bytes } else { 0 };
+                                    if cand_with_digits > 0 {
+                                        if let Some((m_start, m_end)) = find_literal_ci(&rem[cand_with_digits..], next_lit, true) {
+                                            if m_start == 0 {
+                                                idx += 1;
+                                                (&rem[..cand_with_digits], pos + cand_with_digits + m_end, true)
+                                            } else if let Some((0, m_end0)) = find_literal_ci(rem, next_lit, true) {
+                                                idx += 1;
+                                                ("", pos + m_end0, true)
+                                            } else {
+                                                return None;
+                                            }
+                                        } else if let Some((0, m_end0)) = find_literal_ci(rem, next_lit, true) {
+                                            idx += 1;
+                                            ("", pos + m_end0, true)
+                                        } else {
+                                            return None;
+                                        }
+                                    } else if let Some((0, m_end0)) = find_literal_ci(rem, next_lit, true) {
+                                        idx += 1;
+                                        ("", pos + m_end0, true)
+                                    } else {
+                                        return None;
+                                    }
+                                } else if let Some((m_start, m_end)) = find_literal_ci(&o_clean[pos..], next_lit, false) {
+                                    idx += 1;
+                                    (&o_clean[pos..pos + m_start], pos + m_end, true)
+                                } else {
+                                    return None;
+                                }
+                            } else {
+                                unreachable!()
+                            }
+                        } else if let Some((m_start, m_end)) = find_literal_ci(&o_clean[pos..], next_lit, false) {
+                            idx += 1;
+                            (&o_clean[pos..pos + m_start], pos + m_end, true)
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        unreachable!()
+                    }
+                } else {
+                    // Fin de la línea
+                    let rem = &o_clean[pos..];
+                    if end_char_new_line == Some(false) && tag_slice.len() == 1 {
+                        if let TemplateSegment::Tag(lbl) = &tag_slice[0] {
+                            if lbl == "symbol" {
+                                let token_end = rem.find(' ').unwrap_or(rem.len());
+                                (&rem[..token_end], pos + rem.len(), false)
+                            } else {
+                                (rem, o_clean.len(), false)
+                            }
+                        } else {
+                            (rem, o_clean.len(), false)
+                        }
+                    } else {
+                        (rem, o_clean.len(), false)
+                    }
+                };
+
+                if lit_matched {
+                    total_items += 1;
+                    matched_items += 1;
+                }
+
+                if tag_slice.len() == 1 {
+                    if let TemplateSegment::Tag(lbl) = &tag_slice[0] {
+                        total_items += 1;
+                        if apply_template_label(lbl, captured, signals, current_signal, &mut same_line_entry_count) {
+                            matched_items += 1;
+                        } else {
+                            return None;
+                        }
+                    }
+                } else if tag_slice.len() == 2 {
+                    if let (TemplateSegment::Tag(l1), TemplateSegment::Tag(l2)) = (&tag_slice[0], &tag_slice[1]) {
+                        total_items += 2;
+                        let cap_trim = captured.trim();
+                        let split_idx = if l1 == "period_digit" {
+                            cap_trim.chars().take_while(|c| c.is_ascii_digit()).map(|c| c.len_utf8()).sum()
+                        } else if l1 == "period_name" {
+                            cap_trim.chars().take_while(|c| c.is_alphabetic()).map(|c| c.len_utf8()).sum()
+                        } else {
+                            cap_trim.find(' ').unwrap_or(cap_trim.len())
+                        };
+                        let (part1, part2) = cap_trim.split_at(split_idx);
+                        if apply_template_label(l1, part1.trim(), signals, current_signal, &mut same_line_entry_count)
+                            && apply_template_label(l2, part2.trim(), signals, current_signal, &mut same_line_entry_count)
+                        {
+                            matched_items += 2;
+                        } else {
+                            return None;
+                        }
+                    }
+                } else {
+                    for seg in tag_slice {
+                        if let TemplateSegment::Tag(lbl) = seg {
+                            total_items += 1;
+                            if apply_template_label(lbl, captured, signals, current_signal, &mut same_line_entry_count) {
+                                matched_items += 1;
+                            } else {
+                                return None;
+                            }
+                        }
+                    }
+                }
+
+                pos = next_pos;
+            }
+        }
+    }
+
+    // Verificar que no haya quedado texto estático sobrante sin consumir en orig_line
+    if !o_clean[pos..].trim().is_empty() {
+        return None;
+    }
+
+    Some((total_items, matched_items))
+}
+
 /// Analiza un texto original de señales de trading comparándolo contra un texto plantilla que contiene etiquetas `$(etiqueta)`.
-/// Retorna `Option<Vec<Signal>>` conteniendo la lista de señales extraídas si se encontró alguna válida, o `None`.
-pub fn parse_template(original_text: &str, modified_text: &str, line_index: Option<usize>, token_start: Option<usize>, end_char: Option<char>) -> Option<Vec<Signal>> {
-    parse_template_scored(original_text, modified_text, line_index, token_start, end_char)
-        .map(|(signals, _)| signals)
+/// Retorna `Option<Vec<Signal>>` conteniendo la lista de señales extraídas si existe un 100% de coincidencia, o `None`.
+pub fn parse_template(original_text: &str, template_text: &str, end_char_new_line: Option<bool>) -> Option<Vec<Signal>> {
+    let orig_lines: Vec<&str> = original_text.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    let tpl_lines: Vec<&str> = template_text.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+
+    if orig_lines.is_empty() || tpl_lines.is_empty() {
+        return None;
+    }
+
+    let mut signals: Vec<Signal> = Vec::new();
+    let mut current_signal = Signal::default();
+    let mut total_items = 0usize;
+    let mut matched_items = 0usize;
+    let mut visited_tpl_lines: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    let first_is_main = is_main_template_line(tpl_lines[0]);
+
+    if first_is_main && tpl_lines.len() > 1 {
+        // Dividir orig_lines en bloques por cada línea que coincida con la línea principal tpl_lines[0]
+        let mut block_starts = vec![0usize];
+        for i in 1..orig_lines.len() {
+            let mut probe_sigs = Vec::new();
+            let mut probe_sig = Signal::default();
+            if match_and_extract_line(orig_lines[i], tpl_lines[0], end_char_new_line, &mut probe_sigs, &mut probe_sig).is_some()
+                && probe_sig.symbol.is_some()
+                && probe_sig.action.is_some()
+                && probe_sig.entry.is_some()
+            {
+                block_starts.push(i);
+            }
+        }
+
+        for b_idx in 0..block_starts.len() {
+            let start = block_starts[b_idx];
+            let end = if b_idx + 1 < block_starts.len() {
+                block_starts[b_idx + 1]
+            } else {
+                orig_lines.len()
+            };
+            let block = &orig_lines[start..end];
+            if block.len() < 2 {
+                return None;
+            }
+
+            let mut sig_local = Signal::default();
+            // 1. Evaluar primera línea como línea principal (symbol + action + entry)
+            let (t0, m0) = match_and_extract_line(block[0], tpl_lines[0], end_char_new_line, &mut signals, &mut sig_local)?;
+            if t0 == 0 || m0 < t0 || sig_local.symbol.is_none() || sig_local.action.is_none() || sig_local.entry.is_none() {
+                return None;
+            }
+            visited_tpl_lines.insert(0);
+            total_items += t0;
+            matched_items += m0;
+
+            // 2. Iterar las líneas restantes en reversa desde la última hacia la línea 1
+            let mut orig_idx = block.len() as isize - 1;
+            let mut tpl_idx = tpl_lines.len() as isize - 1;
+
+            while orig_idx >= 1 && tpl_idx >= 1 {
+                let u_orig = orig_idx as usize;
+                let u_tpl = tpl_idx as usize;
+
+                if let Some((t_cnt, m_cnt)) = match_and_extract_line(
+                    block[u_orig],
+                    tpl_lines[u_tpl],
+                    end_char_new_line,
+                    &mut signals,
+                    &mut sig_local,
+                ) {
+                    visited_tpl_lines.insert(u_tpl);
+                    total_items += t_cnt;
+                    matched_items += m_cnt;
+
+                    if is_tp_template_line(tpl_lines[u_tpl]) {
+                        orig_idx -= 1;
+                        // Continuar iterando sobre múltiples líneas de Take Profit sin avanzar tpl_idx
+                        while orig_idx >= 1 {
+                            let next_u_orig = orig_idx as usize;
+                            if let Some((tp_t, tp_m)) = match_and_extract_line(
+                                block[next_u_orig],
+                                tpl_lines[u_tpl],
+                                end_char_new_line,
+                                &mut signals,
+                                &mut sig_local,
+                            ) {
+                                total_items += tp_t;
+                                matched_items += tp_m;
+                                orig_idx -= 1;
+                            } else {
+                                break;
+                            }
+                        }
+                        tpl_idx -= 1;
+                        // Si el template tenía más de una línea TP consecutiva ya absorbida, marcarla visitada
+                        while tpl_idx >= 1 && is_tp_template_line(tpl_lines[tpl_idx as usize]) {
+                            if orig_idx >= 1 && match_and_extract_line(
+                                block[orig_idx as usize],
+                                tpl_lines[tpl_idx as usize],
+                                end_char_new_line,
+                                &mut Vec::new(),
+                                &mut sig_local.clone(),
+                            ).is_some() {
+                                break;
+                            }
+                            visited_tpl_lines.insert(tpl_idx as usize);
+                            tpl_idx -= 1;
+                        }
+                    } else {
+                        orig_idx -= 1;
+                        tpl_idx -= 1;
+                    }
+                } else {
+                    return None;
+                }
+            }
+
+            // Si quedaron líneas sin coincidir en el bloque o en el template, no hay 100% de coincidencia
+            if orig_idx >= 1 || tpl_idx >= 1 {
+                return None;
+            }
+
+            // Reordenar los take profits (fueron leídos desde el último hasta el primero en reversa)
+            if let Some(Target::ProfitLoss(ref mut pt)) = sig_local.target {
+                pt.profits.reverse();
+            }
+            signals.push(sig_local);
+        }
+    } else {
+        // Iteración hacia adelante (soporta múltiples señales en el mismo texto)
+        let mut orig_idx = 0usize;
+        let mut tpl_idx = 0usize;
+
+        while orig_idx < orig_lines.len() {
+            if tpl_idx < tpl_lines.len() {
+                if let Some((t_cnt, m_cnt)) = match_and_extract_line(
+                    orig_lines[orig_idx],
+                    tpl_lines[tpl_idx],
+                    end_char_new_line,
+                    &mut signals,
+                    &mut current_signal,
+                ) {
+                    visited_tpl_lines.insert(tpl_idx);
+                    total_items += t_cnt;
+                    matched_items += m_cnt;
+
+                    if is_tp_template_line(tpl_lines[tpl_idx]) {
+                        orig_idx += 1;
+                        while orig_idx < orig_lines.len() {
+                            if let Some((tp_t, tp_m)) = match_and_extract_line(
+                                orig_lines[orig_idx],
+                                tpl_lines[tpl_idx],
+                                end_char_new_line,
+                                &mut signals,
+                                &mut current_signal,
+                            ) {
+                                total_items += tp_t;
+                                matched_items += tp_m;
+                                orig_idx += 1;
+                            } else {
+                                break;
+                            }
+                        }
+                        tpl_idx += 1;
+                        while tpl_idx < tpl_lines.len() && is_tp_template_line(tpl_lines[tpl_idx]) {
+                            if orig_idx < orig_lines.len() && match_and_extract_line(
+                                orig_lines[orig_idx],
+                                tpl_lines[tpl_idx],
+                                end_char_new_line,
+                                &mut Vec::new(),
+                                &mut current_signal.clone(),
+                            ).is_some() {
+                                break;
+                            }
+                            visited_tpl_lines.insert(tpl_idx);
+                            tpl_idx += 1;
+                        }
+                    } else {
+                        orig_idx += 1;
+                        tpl_idx += 1;
+                    }
+                    continue;
+                }
+            }
+
+            // Verificar si inicia una nueva señal repitiendo desde el inicio del bloque de señal en el template
+            if tpl_idx > 0 && current_signal.symbol.is_some() && current_signal.action.is_some() {
+                let mut restart_found = None;
+                for cand_idx in 0..tpl_idx {
+                    if cand_idx == 0
+                        || tpl_lines[cand_idx].contains("$(symbol)")
+                        || tpl_lines[cand_idx].contains("$(entry_time)")
+                        || tpl_lines[cand_idx].contains("$(period)")
+                    {
+                        let mut probe_signals = Vec::new();
+                        let mut probe_sig = Signal::default();
+                        if match_and_extract_line(orig_lines[orig_idx], tpl_lines[cand_idx], end_char_new_line, &mut probe_signals, &mut probe_sig).is_some() {
+                            restart_found = Some(cand_idx);
+                            break;
+                        }
+                    }
+                }
+                if let Some(r_idx) = restart_found {
+                    let prev = current_signal.clone();
+                    signals.push(prev.clone());
+                    current_signal = Signal::default();
+                    current_signal.copy_from(&prev);
+                    tpl_idx = r_idx;
+                    continue;
+                }
+            }
+
+            return None;
+        }
+    }
+
+    if current_signal.symbol.is_some() && current_signal.action.is_some() {
+        signals.push(current_signal);
+    }
+
+    if signals.is_empty() || total_items == 0 || matched_items < total_items {
+        return None;
+    }
+
+    // Verificar que todas las líneas del template fueron visitadas
+    if visited_tpl_lines.len() < tpl_lines.len() {
+        return None;
+    }
+
+    // Verificar que cada señal extraída satisfaga todos los requisitos del template
+    let template_req = TemplateRequirements::from_pattern(template_text);
+    if !signals.iter().all(|s| template_req.is_satisfied_by(s)) {
+        return None;
+    }
+
+    let ratio = (matched_items as f32 / total_items as f32) * 100.0;
+    let limit: f32 = std::env::var("TOKENIZER_TEMPLATE_MATCH_LIMIT")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+        .unwrap_or(95.0);
+    if ratio >= limit {
+        Some(signals)
+    } else {
+        None
+    }
 }
 
 /// Analiza un texto original retornando las señales extraídas junto con el score de coincidencia (0.0 - 100.0).
@@ -1838,7 +2936,7 @@ mod tests {
         let original_text = "BTCUSDT BUY 45000\nTP 46000\nSL 44000\n";
         let modified_text = "$(symbol) $(action) $(entry_price)\nTP $(profit_price)\nSL $(stoploss)\n";
 
-        let parsed_signals = parse_template(original_text, modified_text, None, None, None);
+        let parsed_signals = parse_template(original_text, modified_text, None);
         assert!(parsed_signals.is_some(), "Expected parse_template to return signals");
 
         let signals = parsed_signals.unwrap();
@@ -1860,8 +2958,7 @@ mod tests {
         let original_text = "HEADER INFO\nEURUSD BUY 1.0850\n";
         let modified_text = "HEADER INFO\n$(symbol) $(action) $(entry_price)\n";
 
-        // Symbol starts at line index 1, token start 0, delimited by ' '
-        let parsed_signals = parse_template(original_text, modified_text, Some(1), Some(0), Some(' '));
+        let parsed_signals = parse_template(original_text, modified_text, Some(false));
         assert!(parsed_signals.is_some(), "Expected parse_template to return signals");
 
         let signals = parsed_signals.unwrap();
@@ -1960,7 +3057,7 @@ mod tests {
         let raw_text = "📊 Divisa: GBPCHF-OTC\n⏳ EXPIRACIÓN: M1\n⏱️ ENTRADA: 19:22:00\n🟢 ARIBA / CALL\n\n🚦 Tend: Buy\n📈 Forecast: 98%\n💸 Payout: 77.0%\n\n📲 Link de registro Quotex \nRecarga con 50% más Código: TheKing50";
         let pattern = "📊 Divisa: $(symbol)\n⏳ EXPIRACIÓN: $(period)\n⏱️ ENTRADA: $(entry_time)\n$(dismiss) $(dismiss) / $(action)\n\n🚦 Tend: $(action)\n📈 Forecast: $(dismiss)%\n💸 Payout: $(dismiss)%\n\n📲 Link de registro Quotex \nRecarga con 50% más Código: TheKing50";
 
-        let result = parse_template(raw_text, pattern, Some(0), Some(11), None);
+        let result = parse_template(raw_text, pattern, Some(true));
         assert!(result.is_some(), "Expected template to parse");
         let signals = result.unwrap();
         assert_eq!(signals.len(), 1, "Expected exactly 1 signal, not ghost signals");
@@ -1981,26 +3078,38 @@ mod tests {
         // ID 23 test: Tp$(dismiss)-
         let ex23 = "Gold buy now @4102\n\nSL:4001\n\nTp1-4106";
         let pat23 = "$(symbol) $(action) now @$(entry_price)\n\nSL:$(stoploss)\n\nTp$(dismiss)-$(profit_price)";
-        let res23 = parse_template(ex23, pat23, None, None, None);
+        let res23 = parse_template(ex23, pat23, None);
         assert!(res23.is_some());
 
         // ID 8 test: single TP and SL
         let ex8 = "🕯 #XAUUSD SELL 4534\n\nTP 4530\n\n🔴 SL_4546";
         let pat8 = "🕯 #$(symbol) $(action) $(entry_price)\n\nTP $(profit_price)\n\n🔴 SL_$(stoploss)";
-        let res8 = parse_template(ex8, pat8, None, None, None);
+        let res8 = parse_template(ex8, pat8, None);
         assert!(res8.is_some());
 
         // ID 16 test: single TP
         let ex16 = "🕯 #XAUUSD BUY 4040\n\nTP 4044\n\n🔴 SL_4026";
         let pat16 = "🕯 #$(symbol) $(action) $(entry_price)\n\nTP $(profit_price)\n\n🔴 SL_$(stoploss)";
-        let res16 = parse_template(ex16, pat16, None, None, None);
+        let res16 = parse_template(ex16, pat16, None);
         assert!(res16.is_some());
 
         // ID 10 test: TP.$(dismiss).
         let ex10 = "💥XAUUSD NOW SELL\u{00a0} 4095💯💯\n\n\u{00a0} 🔽TP.1. 4090\n\n❌SL.TP. 4103";
         let pat10 = "💥XAUUSD $(symbol) $(action)\u{00a0} $(entry_price)💯💯\n\n\u{00a0} 🔽TP.$(dismiss). $(profit_price)\n\n❌SL.TP. $(stoploss)";
-        let res10 = parse_template(ex10, pat10, None, None, None);
+        let res10 = parse_template(ex10, pat10, None);
         assert!(res10.is_some());
+
+        // Multi-TP con TP$(index) e iteración en reversa desde la última línea
+        let ex_multi_tp = "🔔  GOLD  🎯| 🔴 SELL |  4103.50\n    ⛔️SL  4109.50\n    ✅ TP1  4101.50\n    ✅ TP2  4098.50\n    ✅ TP3  4093.50";
+        let pat_multi_tp = "🔔  $(symbol)  🎯| $(dismiss) $(action) |  $(entry_price)\n    ⛔️SL  $(stoploss)\n    ✅ TP$(index)  $(profit_price)";
+        let res_multi = parse_template(ex_multi_tp, pat_multi_tp, None).expect("Expected multi-TP with TP$(index) to match");
+        assert_eq!(res_multi.len(), 1);
+        if let Some(Target::ProfitLoss(ref pt)) = res_multi[0].target {
+            assert_eq!(pt.profits, vec![4101.5, 4098.5, 4093.5]);
+            assert_eq!(pt.stoploss, 4109.5);
+        } else {
+            panic!("Expected ProfitLoss target");
+        }
     }
 
     #[test]
@@ -2008,13 +3117,13 @@ mod tests {
         let promo_msg_7 = "50START \n🔺 Código 🔺\n➡️ Recargas 50$ Recibes 75$\n➡️ Recargas 100$ Recibes 150$\nMínimo de recarga 50$ USD\n⚠️ Para utilizar el cupón debes haberte registrado con nuestro Link\n✅ Aprende a crear tu cuenta aquí👇🏽👇🏽👇🏽\n🆘 https://t.me/registropocketoption 🆘\nRegístrese e ingrese al Canal VIP 👑 24 horas de análisis en vivo 📈";
         let pattern_284 = "👑 The King 1 Minuto VIP Pocket Option 👑\n\n💷 $(symbol)\n💎 $(period)\n⌚️ $(entry_time)\n🔼 $(action)\n\n \n\nLink de registro Pocket Option";
 
-        let result_7 = parse_template(promo_msg_7, pattern_284, None, None, None);
+        let result_7 = parse_template(promo_msg_7, pattern_284, None);
         assert!(result_7.is_none(), "Promo message without trade action must return None");
 
         let promo_msg_31 = "¡ÚLTIMO AVISO! – QUEDAN POCOS LUGARES PARA EL PRÓXIMO BOT DE COMERCIO DE QX\n\n🤖 El lanzamiento del próximo Bot de Comercio de QX está a punto de finalizar.🤖\n⚠️ Los últimos lugares para recibir la clave de acceso se están agotando MUY rápidamente.\n\n💼 EL BOT QUE TODOS QUIEREN:\n\n✔️ Copia automáticamente todas mis operaciones\n✔️ Copia cualquier sala de trading (incluidas las de pago)\n✔️ Funciona de forma autónoma 24/7, incluso con el teléfono apagado\n✔️ Velocidad increíble, sin retrasos\n✔️ Stop/valor/porcentaje totalmente configurables\n✔️ Estrategia profesional sin martingala\n\nhttps://t.me/SuporteOficialTiger";
         let pattern_291 = "✅ ENTRY CONFIRMED ✅\n\n🌎 coin: $(symbol) $(otc)\n⏳ Expiration: $(period)\n📊 Direction: $(dismiss) $(action)\n⏰ time: $(entry_time)\n\n👉 Use up to two Martingale steps in the event of a loss!\n1º GALE: ENDS IN: 17:46h\n2º GALE: ENDS IN: 17:47h\n\n📱 REGISTER HERE";
 
-        let result_31 = parse_template(promo_msg_31, pattern_291, None, None, None);
+        let result_31 = parse_template(promo_msg_31, pattern_291, None);
         assert!(result_31.is_none(), "Promo message 31 without valid symbol/action must return None");
     }
 
@@ -2023,17 +3132,25 @@ mod tests {
         // Test template con $(otc)
         let signal_otc = "EURUSD OTC\nCALL\n12:00:00\n";
         let template_otc = "$(symbol) $(otc)\n$(action)\n$(entry_time)\n";
-        let result = parse_template(signal_otc, template_otc, None, None, None);
+        let result = parse_template(signal_otc, template_otc, None);
         assert!(result.is_some(), "Expected template with $(otc) to match");
         let signals = result.unwrap();
         assert_eq!(signals.len(), 1);
         assert_eq!(signals[0].action, Some(true));
         assert_eq!(signals[0].symbol.as_ref().unwrap().symbol_class, Some(SymbolClass::Otc));
 
-        // Test template con ($(otc)) entre paréntesis
-        let signal_paren_otc = "EURUSD (OTC)\nCALL\n12:00:00\n";
+        // Test template con $(otc) cuando el texto NO contiene otc (debe ser obviado y dar 100% match)
+        let signal_no_otc = "EURUSD\nCALL\n12:00:00\n";
+        let result_no_otc = parse_template(signal_no_otc, template_otc, None);
+        assert!(result_no_otc.is_some(), "Expected template with $(otc) to omit $(otc) when text has no otc");
+        let signals_no_otc = result_no_otc.unwrap();
+        assert_eq!(signals_no_otc.len(), 1);
+        assert_eq!(signals_no_otc[0].symbol.as_ref().unwrap().symbol_class, None);
+
+        // Test template con ($(otc)) entre paréntesis y minúsculas (case-insensitive)
+        let signal_paren_otc = "EURUSD (otc)\nCALL\n12:00:00\n";
         let template_paren_otc = "$(symbol) ($(otc))\n$(action)\n$(entry_time)\n";
-        let result_paren = parse_template(signal_paren_otc, template_paren_otc, None, None, None);
+        let result_paren = parse_template(signal_paren_otc, template_paren_otc, None);
         assert!(result_paren.is_some(), "Expected template with ($(otc)) to match");
         let signals_paren = result_paren.unwrap();
         assert_eq!(signals_paren.len(), 1);
@@ -2059,7 +3176,7 @@ mod tests {
             let example = item["example_text"].as_str().unwrap();
 
             total_tested += 1;
-            let parsed = parse_template(example, pattern, None, None, None);
+            let parsed = parse_template(example, pattern, None);
             if let Some(sigs) = parsed {
                 matched += 1;
                 println!("ID {}: OK ({} signals) [{}]", id, sigs.len(), name);
@@ -2076,5 +3193,6 @@ mod tests {
         for (id, is_active, name) in &failures {
             println!(" - Falló ID {}: {} (activo={})", id, name, is_active);
         }
+        assert!(failures.is_empty(), "Expected 100% of database examples to match their templates");
     }
 }

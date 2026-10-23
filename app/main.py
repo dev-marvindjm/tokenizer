@@ -46,6 +46,16 @@ async def serve_validator_ui():
         return FileResponse(html_file)
     return HTMLResponse("<h1>Validator UI not found</h1>", status_code=404)
 
+@app.get("/tokenizer", response_class=HTMLResponse, tags=["UI"])
+async def serve_tokenizer_ui():
+    tok_file = STATIC_DIR / "tokenizer.html"
+    if tok_file.exists():
+        return FileResponse(tok_file)
+    html_file = STATIC_DIR / "validator.html"
+    if html_file.exists():
+        return FileResponse(html_file)
+    return HTMLResponse("<h1>Tokenizer UI not found</h1>", status_code=404)
+
 @app.get("/health", tags=["Health"])
 async def health_check():
     return {

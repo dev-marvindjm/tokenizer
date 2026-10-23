@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 from typing import List, Dict, Any, Optional, Tuple
 import rust_core
@@ -95,6 +96,28 @@ class RustBridgeService:
     @classmethod
     async def parse_template_async(cls, text: str, pattern: str, template_name: Optional[str] = None) -> Tuple[Optional[str], int]:
         return await asyncio.to_thread(cls.parse_template_sync, text, pattern, template_name)
+
+    @staticmethod
+    def parse_template_exact_sync(text: str, pattern: str, end_char_new_line: Optional[bool] = None) -> Tuple[Optional[str], int, int]:
+        """
+        Synchronously execute the strict 100% parse_template engine and return:
+        (json_str, signals_count, latency_us)
+        """
+        t0 = time.perf_counter_ns()
+        json_str = rust_core.parse_template_exact_json(text, pattern, end_char_new_line)
+        duration_us = (time.perf_counter_ns() - t0) // 1000
+        signals_count = 0
+        if json_str:
+            try:
+                data = json.loads(json_str)
+                signals_count = int(data.get("signals_count", len(data.get("signals", []))))
+            except Exception:
+                signals_count = 0
+        return json_str, signals_count, duration_us
+
+    @classmethod
+    async def parse_template_exact_async(cls, text: str, pattern: str, end_char_new_line: Optional[bool] = None) -> Tuple[Optional[str], int, int]:
+        return await asyncio.to_thread(cls.parse_template_exact_sync, text, pattern, end_char_new_line)
 
 rust_bridge = RustBridgeService()
 

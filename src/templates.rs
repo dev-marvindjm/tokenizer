@@ -191,6 +191,34 @@ pub fn parse_template_json(text: &str, pattern: &str, template_name: Option<&str
     }
 }
 
+/// Matches raw text against a template pattern using the strict 100% parse_template engine
+#[pyfunction]
+#[pyo3(signature = (text, pattern, end_char_new_line=None))]
+pub fn parse_template_exact_json(
+    text: &str,
+    pattern: &str,
+    end_char_new_line: Option<bool>,
+) -> PyResult<Option<String>> {
+    if pattern.trim().is_empty() {
+        return Ok(None);
+    }
+
+    if let Some(signals) = parse_template(text, pattern, end_char_new_line) {
+        let value = serde_json::json!({
+            "signals": signals,
+            "signals_count": signals.len(),
+            "is_match": true,
+            "pattern": pattern
+        });
+        match serde_json::to_string_pretty(&value) {
+            Ok(s) => Ok(Some(s)),
+            Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!("JSON serialization error: {}", e))),
+        }
+    } else {
+        Ok(None)
+    }
+}
+
 /// Parses raw signal text using the token engine and returns formatted JSON string of extracted Signals
 #[pyfunction]
 pub fn parse_signal_json(text: &str) -> PyResult<Option<String>> {

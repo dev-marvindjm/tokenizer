@@ -52,13 +52,25 @@
     ::-webkit-scrollbar-thumb:hover {
       background: #4b5563;
     }
+    .badge-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.15rem 0.4rem;
+      border-radius: 0.375rem;
+      font-size: 0.7rem;
+      font-family: monospace;
+      font-weight: 500;
+      border-width: 1px;
+      user-select: text;
+    }
   </style>
 </head>
 <body class="bg-dark-900 text-gray-200 antialiased min-h-screen flex flex-col font-sans select-none">
   <div id="app" class="flex flex-col h-screen overflow-hidden">
     
     <!-- TOP NAVIGATION & STATS HEADER -->
-    <header class="bg-dark-850 border-b border-dark-700 px-6 py-3 flex items-center justify-between shrink-0 shadow-lg">
+    <header class="bg-dark-850 border-b border-dark-700 px-6 py-2.5 flex items-center justify-between shrink-0 shadow-lg">
       <div class="flex items-center space-x-3">
         <div class="w-9 h-9 rounded-lg bg-blue-600/20 text-blue-400 flex items-center justify-center font-bold text-lg border border-blue-500/30">
           <i class="fa-solid fa-bolt"></i>
@@ -68,16 +80,16 @@
             Trading Signals Ground Truth Studio
             <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium">Rust Core Engine</span>
           </h1>
-          <p class="text-xs text-gray-400">Validador de plantillas, extracción de señales y repositorio de pruebas para Telegram</p>
+          <p class="text-xs text-gray-400">Pruebas estrictas de <code>parse_template</code>, extracción de señales y repositorio para Telegram</p>
         </div>
       </div>
 
-      <!-- Quick Metrics Summary -->
-      <div class="flex items-center gap-4 text-xs">
+      <!-- Quick Metrics & Global Action Buttons -->
+      <div class="flex items-center gap-3 text-xs">
         <div class="bg-dark-800 border border-dark-700 px-3 py-1.5 rounded-lg flex items-center gap-3 shadow-inner">
-          <span class="text-gray-400">Mensajes: <strong class="text-white">{{ stats.total_messages?.toLocaleString() }}</strong></span>
+          <span class="text-gray-400">Telegram: <strong class="text-white">{{ (stats.telegram_messages || stats.total_messages)?.toLocaleString() }}</strong> msgs</span>
           <span class="h-3 w-px bg-dark-700"></span>
-          <span class="text-gray-400">Validados: <strong class="text-blue-400">{{ stats.total_validated?.toLocaleString() }}</strong></span>
+          <span class="text-gray-400">Canales: <strong class="text-blue-400">{{ (stats.telegram_senders || senders.length) }}</strong></span>
           <span class="h-3 w-px bg-dark-700"></span>
           <span class="text-emerald-400 font-semibold flex items-center gap-1">
             <i class="fa-solid fa-circle-check text-[10px]"></i> {{ stats.signals_count }} Señales
@@ -88,10 +100,28 @@
           </span>
         </div>
 
+        <!-- Tokenizer & Template Creator Button -->
+        <button 
+          @click="openTokenizerModal"
+          title="Abrir analizador léxico y generador de templates"
+          class="bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 font-medium px-3 py-1.5 rounded-lg flex items-center gap-2 transition duration-150 shadow">
+          <i class="fa-solid fa-wand-magic-sparkles text-purple-400"></i>
+          <span>Tokenizer & Creador</span>
+        </button>
+
+        <!-- Global Batch Test Button -->
+        <button 
+          @click="openBatchWithMode('at_least_one')"
+          title="Ejecutar pruebas de templates por lote en múltiples canales"
+          class="bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/40 font-medium px-3 py-1.5 rounded-lg flex items-center gap-2 transition duration-150 shadow">
+          <i class="fa-solid fa-flask-vial text-amber-400"></i>
+          <span>Pruebas por Lote</span>
+        </button>
+
         <!-- Export button -->
         <button 
           @click="openExportModal"
-          class="bg-blue-600 hover:bg-blue-500 text-white font-medium px-3.5 py-1.5 rounded-lg flex items-center gap-2 transition duration-150 shadow-md">
+          class="bg-blue-600 hover:bg-blue-500 text-white font-medium px-3 py-1.5 rounded-lg flex items-center gap-2 transition duration-150 shadow-md">
           <i class="fa-solid fa-download"></i>
           <span>Exportar Test JSON</span>
         </button>
@@ -101,7 +131,7 @@
     <!-- MAIN APP SPLIT CONTAINER -->
     <div class="flex flex-1 overflow-hidden">
       
-      <!-- LEFT PANE: MESSAGES EXPLORER (35% width) -->
+      <!-- LEFT PANE: MESSAGES EXPLORER (38% width) -->
       <div class="w-[38%] border-r border-dark-700 bg-dark-850 flex flex-col shrink-0">
         
         <!-- Search & Filter Controls -->
@@ -114,7 +144,7 @@
               v-model="filters.search" 
               @input="debounceSearch"
               type="text" 
-              placeholder="Buscar texto en mensajes..."
+              placeholder="Buscar texto en mensajes de Telegram..."
               class="w-full bg-dark-800 border border-dark-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition"
             />
             <button v-if="filters.search" @click="filters.search = ''; loadMessages()" class="absolute right-2.5 top-2 text-gray-500 hover:text-gray-300">
@@ -122,17 +152,38 @@
             </button>
           </div>
 
-          <!-- Channel / Sender Filter -->
-          <div class="flex gap-2">
-            <select 
-              v-model="filters.sender_name" 
-              @change="loadMessages(1)"
-              class="flex-1 bg-dark-800 border border-dark-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500">
-              <option value="">Todos los Canales / Remitentes ({{ senders.length }})</option>
-              <option v-for="s in senders" :key="s.id" :value="s.display_name">
-                {{ s.display_name }} ({{ s.messages_count }})
-              </option>
-            </select>
+          <!-- Channel / Sender Filter & Multi-Sender Button -->
+          <div class="flex gap-2 items-center">
+            <div class="flex-1 relative">
+              <select 
+                v-if="selectedSenders.length === 0"
+                v-model="filters.sender_name" 
+                @change="onSenderFilterChange"
+                class="w-full bg-dark-800 border border-dark-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500">
+                <option value="">🌟 Todos los Canales de Telegram ({{ senders.length }})</option>
+                <option v-for="s in senders" :key="s.id" :value="s.display_name">
+                  {{ s.display_name }} ({{ s.messages_count }})
+                </option>
+              </select>
+              <div v-else class="flex items-center justify-between bg-dark-800 border border-blue-500/40 rounded-lg px-2.5 py-1.5 text-xs">
+                <span class="text-blue-300 font-medium truncate">
+                  <i class="fa-solid fa-filter text-[10px]"></i> {{ selectedSenders.length }} canales seleccionados
+                </span>
+                <button @click="clearSenderSelection" class="text-gray-400 hover:text-rose-400 text-xs ml-2">
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Multi-Select Senders Modal Trigger -->
+            <button 
+              @click="showMultiSenderModal = true"
+              title="Seleccionar múltiples canales de Telegram"
+              :class="selectedSenders.length > 0 ? 'bg-blue-600 text-white border-blue-500' : 'bg-dark-800 text-gray-300 border-dark-700 hover:bg-dark-750'"
+              class="px-2.5 py-1.5 rounded-lg border text-xs flex items-center gap-1.5 transition whitespace-nowrap shadow-sm">
+              <i class="fa-solid fa-list-check"></i>
+              <span>Canales ({{ selectedSenders.length > 0 ? selectedSenders.length : senders.length }})</span>
+            </button>
           </div>
 
           <!-- Status Filter Tabs -->
@@ -169,25 +220,59 @@
             </button>
           </div>
 
-          <!-- Multi-Select Bulk Actions Toolbar -->
-          <div class="flex items-center justify-between pt-1 px-1 text-xs">
-            <label class="flex items-center gap-2 cursor-pointer text-gray-400 hover:text-gray-200">
-              <input 
-                type="checkbox" 
-                :checked="isAllSelected" 
-                @change="toggleSelectAll" 
-                class="rounded bg-dark-800 border-dark-700 text-blue-600 focus:ring-0">
-              <span>Seleccionar todos ({{ selectedIds.length }})</span>
-            </label>
+          <!-- BATCH ACTIONS TOOLBAR: PROBAR AL MENOS UNA, PROBAR TODAS, PROBAR SELECCIONADAS -->
+          <div class="bg-dark-800/90 border border-dark-700 p-2 rounded-lg flex flex-col gap-1.5 text-xs">
+            <div class="flex items-center justify-between text-[11px] text-gray-400">
+              <span class="font-semibold text-gray-300 flex items-center gap-1">
+                <i class="fa-solid fa-vial-circle-check text-amber-400"></i> Acciones de Prueba:
+              </span>
+              <label class="flex items-center gap-1.5 cursor-pointer text-gray-400 hover:text-gray-200">
+                <input 
+                  type="checkbox" 
+                  :checked="isAllSelected" 
+                  @change="toggleSelectAll" 
+                  class="rounded bg-dark-900 border-dark-700 text-blue-600 focus:ring-0">
+                <span>Marcar todos ({{ selectedIds.length }})</span>
+              </label>
+            </div>
 
-            <!-- Bulk reject button -->
-            <button 
-              v-if="selectedIds.length > 0"
-              @click="batchMarkNoSignal"
-              class="bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 transition">
-              <i class="fa-solid fa-ban"></i>
-              <span>Marcar {{ selectedIds.length }} sin señal</span>
-            </button>
+            <!-- 3 Requested Global Test Actions -->
+            <div class="grid grid-cols-3 gap-1.5">
+              <button 
+                @click="openBatchWithMode('at_least_one')"
+                title="Prueba 1 mensaje por cada canal de Telegram seleccionado con el template actual"
+                class="bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 px-2 py-1 rounded text-[11px] font-medium flex items-center justify-center gap-1 transition">
+                <i class="fa-solid fa-bolt-lightning text-[10px]"></i>
+                <span>1 por canal</span>
+              </button>
+
+              <button 
+                @click="openBatchWithMode('all')"
+                title="Prueba todos los mensajes de los canales de Telegram con el template actual"
+                class="bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 border border-blue-500/30 px-2 py-1 rounded text-[11px] font-medium flex items-center justify-center gap-1 transition">
+                <i class="fa-solid fa-play text-[10px]"></i>
+                <span>Probar todos</span>
+              </button>
+
+              <button 
+                @click="openBatchWithMode('selected')"
+                :disabled="selectedIds.length === 0"
+                title="Prueba solo los mensajes marcados en la lista con el template actual"
+                class="bg-purple-500/15 hover:bg-purple-500/25 disabled:opacity-40 text-purple-300 border border-purple-500/30 px-2 py-1 rounded text-[11px] font-medium flex items-center justify-center gap-1 transition">
+                <i class="fa-solid fa-check-double text-[10px]"></i>
+                <span>Marcadas ({{ selectedIds.length }})</span>
+              </button>
+            </div>
+
+            <!-- Bulk reject button when items are selected -->
+            <div v-if="selectedIds.length > 0" class="flex justify-end pt-0.5">
+              <button 
+                @click="batchMarkNoSignal"
+                class="text-rose-400 hover:text-rose-300 text-[10px] font-medium flex items-center gap-1 transition">
+                <i class="fa-solid fa-ban"></i>
+                <span>Marcar {{ selectedIds.length }} seleccionados como sin señal</span>
+              </button>
+            </div>
           </div>
 
         </div>
@@ -196,7 +281,7 @@
         <div class="flex-1 overflow-y-auto divide-y divide-dark-750">
           <div v-if="loadingMessages" class="p-8 text-center text-gray-500 text-xs">
             <i class="fa-solid fa-circle-notch fa-spin text-lg mb-2 text-blue-400"></i>
-            <p>Cargando mensajes...</p>
+            <p>Cargando mensajes de Telegram...</p>
           </div>
           <div v-else-if="messages.length === 0" class="p-8 text-center text-gray-500 text-xs">
             <i class="fa-regular fa-envelope-open text-2xl mb-2 text-gray-600"></i>
@@ -275,19 +360,19 @@
 
       </div>
 
-      <!-- RIGHT PANE: GROUND TRUTH VALIDATOR & JSON COMPARATOR (65% width) -->
+      <!-- RIGHT PANE: TESTING LAB, EDITABLE TEXTAREA, GROUND TRUTH & TOKENIZER (62% width) -->
       <div class="flex-1 bg-dark-900 flex flex-col overflow-y-auto">
         
         <div v-if="!currentMessage" class="flex-1 flex flex-col items-center justify-center text-gray-500 p-8">
           <i class="fa-regular fa-comment-dots text-4xl mb-3 text-dark-700"></i>
           <h2 class="text-base font-medium text-gray-400">Selecciona un mensaje de Telegram</h2>
-          <p class="text-xs text-gray-600 mt-1">Elige un mensaje de la columna izquierda para ejecutar los analizadores y validar el Ground Truth.</p>
+          <p class="text-xs text-gray-600 mt-1">Elige un mensaje de la columna izquierda para ejecutar los analizadores y probar templates con <code>parse_template</code>.</p>
         </div>
 
         <div v-else class="flex flex-col flex-1 p-5 space-y-4">
           
           <!-- MESSAGE DETAILS HEADER & NAV -->
-          <div class="bg-dark-850 border border-dark-700 rounded-xl p-4 shadow-sm flex items-start justify-between">
+          <div class="bg-dark-850 border border-dark-700 rounded-xl p-3.5 shadow-sm flex items-start justify-between">
             <div>
               <div class="flex items-center gap-2 mb-1">
                 <span class="text-sm font-bold text-white">{{ currentMessage.sender_name }}</span>
@@ -301,8 +386,14 @@
               </div>
             </div>
 
-            <!-- Prev / Next Navigation buttons -->
+            <!-- Action shortcuts -->
             <div class="flex items-center gap-2">
+              <button 
+                @click="openTokenizerWithCurrentMessage" 
+                title="Tokenizar este mensaje y generar template"
+                class="px-2.5 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded-lg text-xs font-medium transition flex items-center gap-1.5 shadow-sm">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Tokenizer
+              </button>
               <button 
                 @click="navMessage(-1)" 
                 title="Mensaje anterior (Alt+Izquierda)"
@@ -318,7 +409,262 @@
             </div>
           </div>
 
-          <!-- ROW 1: MENSAJE ORIGINAL & JSON GROUND TRUTH (PARALELOS) -->
+          <!-- SECTION 1: EDITABLE TEXTAREA PARA parse_template (CORE DEL REQUERIMIENTO) -->
+          <div class="bg-dark-850 border-2 border-blue-500/50 rounded-xl p-4 shadow-md flex flex-col space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></div>
+                <h2 class="text-xs font-bold text-white tracking-wide uppercase flex items-center gap-1.5">
+                  <i class="fa-solid fa-code text-blue-400"></i> Laboratorio de Pruebas: parse_template (Rust Core)
+                </h2>
+                <span class="text-[10px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono">
+                  100% Strict Match & Reverse Iteration
+                </span>
+              </div>
+
+              <!-- Match Status & Signals Extracted Counter Badge -->
+              <div class="flex items-center gap-2">
+                <span v-if="parseResult.templates_tested_count > 0" class="text-[10px] font-mono px-2 py-1 rounded bg-blue-950/60 text-blue-300 border border-blue-700/40" title="Cantidad total de templates verificados automáticamente al seleccionar la señal">
+                  <i class="fa-solid fa-rotate text-[9px] mr-1"></i>
+                  <template v-if="exactTestResult.is_match && parseResult.matched_template_id && selectedTemplateForEditor === parseResult.matched_template_id">
+                    Match #{{ parseResult.matched_template_id }} (de {{ parseResult.templates_tested_count }} templates)
+                  </template>
+                  <template v-else>
+                    {{ parseResult.templates_tested_count }} templates iterados
+                  </template>
+                </span>
+                <span v-if="exactTestResult.is_match" class="text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 shadow-sm">
+                  <i class="fa-solid fa-circle-check"></i> 100% MATCH
+                  <span class="bg-emerald-500/30 px-1.5 py-0.2 rounded text-[11px] font-mono font-extrabold text-white">
+                    🎯 {{ exactTestResult.signals_count }} Señal(es)
+                  </span>
+                </span>
+                <span v-else class="text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center gap-1.5 shadow-sm">
+                  <i class="fa-solid fa-circle-xmark"></i> NO COINCIDE (0 señales)
+                </span>
+                <span class="text-[10px] font-mono text-gray-400 px-2 py-1 bg-dark-800 rounded border border-dark-700">
+                  {{ exactTestResult.latency_us }} µs
+                </span>
+              </div>
+            </div>
+
+            <!-- Toolbar: Cargar Plantilla de BD + Inserción Rápida de Etiquetas -->
+            <div class="flex flex-col gap-2 bg-dark-800/80 p-2.5 rounded-lg border border-dark-700 text-xs">
+              <!-- Channel & Filter Info Bar -->
+              <div class="flex items-center justify-between text-[11px] pb-1 border-b border-dark-700/60">
+                <div class="flex items-center gap-1.5 text-gray-300 truncate">
+                  <i class="fa-brands fa-telegram text-sky-400"></i>
+                  <span class="text-gray-400">Canal activo:</span>
+                  <strong class="text-white truncate max-w-[200px]">{{ effectiveSenderName || 'Todos los canales' }}</strong>
+                  <span class="px-1.5 py-0.2 rounded bg-blue-900/40 text-blue-300 border border-blue-700/50 text-[10px] font-mono">
+                    {{ templates.length }} {{ templates.length === 1 ? 'plantilla' : 'plantillas' }}
+                  </span>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <label class="flex items-center gap-1 cursor-pointer text-gray-400 hover:text-gray-200 text-[10px]" title="Incluir plantillas globales o sin remitente asignado">
+                    <input type="checkbox" v-model="includeGlobalTemplates" @change="reloadTemplatesForCurrentSender" class="rounded bg-dark-900 border-dark-700 text-blue-500 text-xs">
+                    <span>Globales</span>
+                  </label>
+                  <button 
+                    v-if="activeSenderFilter" 
+                    @click="clearTemplateSenderFilter" 
+                    class="text-blue-400 hover:text-blue-300 text-[10px] underline"
+                    title="Mostrar todas las plantillas registradas sin filtrar por canal">
+                    Ver todas
+                  </button>
+                </div>
+              </div>
+
+              <!-- Template Select Row with CRUD Action Buttons -->
+              <div class="flex flex-wrap items-center justify-between gap-1.5">
+                <span class="text-gray-400 text-[11px] whitespace-nowrap font-medium">Plantilla base:</span>
+                <select 
+                  v-model="selectedTemplateForEditor" 
+                  @change="onTemplateSelectChange"
+                  class="flex-1 min-w-[180px] bg-dark-900 border border-dark-700 rounded px-2.5 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500">
+                  <option :value="null">-- {{ templates.length === 0 ? 'Sin plantillas para este canal' : 'Seleccionar plantilla' }} --</option>
+                  <option v-for="t in templates" :key="t.id" :value="t.id">
+                    #{{ t.id }} - {{ t.name }} {{ t.sender_name ? '• ' + t.sender_name : '• Global' }}
+                  </option>
+                </select>
+
+                <!-- CRUD: CREATE (Nuevo) -->
+                <button 
+                  @click="createNewTemplateFromEditor"
+                  :disabled="savingTemplate"
+                  title="Guardar el contenido del textarea como una nueva plantilla con los datos seleccionados"
+                  class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded font-medium text-xs flex items-center gap-1 transition shadow whitespace-nowrap">
+                  <i class="fa-solid fa-plus" :class="{'fa-spin': savingTemplate}"></i>
+                  <span>Nuevo</span>
+                </button>
+
+                <!-- CRUD: QUICK UPDATE (Guardar sintaxis del textarea en plantilla seleccionada) -->
+                <button 
+                  v-if="selectedTemplateForEditor"
+                  @click="quickUpdateSelectedTemplate"
+                  :disabled="savingTemplate"
+                  title="Actualizar la sintaxis de la plantilla seleccionada con el contenido actual del textarea"
+                  class="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium text-xs flex items-center gap-1 transition shadow whitespace-nowrap">
+                  <i class="fa-solid fa-floppy-disk"></i>
+                  <span>Actualizar</span>
+                </button>
+
+                <!-- CRUD: DELETE (Borrar plantilla seleccionada) -->
+                <button 
+                  v-if="selectedTemplateForEditor"
+                  @click="deleteSelectedTemplate()"
+                  title="Borrar la plantilla seleccionada de la base de datos"
+                  class="px-2 py-1 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 rounded font-medium text-xs flex items-center gap-1 transition whitespace-nowrap">
+                  <i class="fa-solid fa-trash-can"></i>
+                  <span>Borrar</span>
+                </button>
+
+                <button 
+                  @click="runExactTest" 
+                  title="Probar únicamente la sintaxis actual del textarea con parse_template"
+                  class="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded font-medium text-xs flex items-center gap-1 transition shadow whitespace-nowrap">
+                  <i class="fa-solid fa-bolt" :class="{'fa-spin': exactTesting}"></i>
+                  <span>Probar parse_template</span>
+                </button>
+
+                <button 
+                  @click="runParse" 
+                  title="Iterar por todos los templates registrados (incluyendo los recién creados) para verificar si alguno coincide"
+                  class="px-2.5 py-1 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/40 rounded font-medium text-xs flex items-center gap-1 transition shadow whitespace-nowrap">
+                  <i class="fa-solid fa-rotate" :class="{'fa-spin': parsing}"></i>
+                  <span>Iterar Todos</span>
+                </button>
+              </div>
+
+              <!-- Warning banner if 0 templates for active sender -->
+              <div v-if="templates.length === 0 && effectiveSenderName" class="p-2 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between">
+                <span class="flex items-center gap-1.5">
+                  <i class="fa-solid fa-triangle-exclamation text-amber-400"></i>
+                  <span>Canal <strong>{{ effectiveSenderName }}</strong> sin plantillas vinculadas.</span>
+                </span>
+                <button @click="createNewTemplateFromEditor" class="px-2 py-0.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-[11px] font-semibold flex items-center gap-1 shadow">
+                  <i class="fa-solid fa-plus"></i> Crear plantilla para este canal
+                </button>
+              </div>
+
+              <!-- Token Helper Tags (Click to insert into textarea) -->
+              <div class="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
+                <span class="text-gray-400 text-[10px] font-medium mr-1">Insertar etiqueta:</span>
+                <button @click="insertTokenTag('$(_)')" class="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-600 font-mono transition">+ $(_)</button>
+                <button @click="insertTokenTag('$(action)')" class="px-2 py-0.5 rounded bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-300 border border-emerald-700/50 font-mono transition">+ $(action)</button>
+                <button @click="insertTokenTag('$(custom)')" class="px-2 py-0.5 rounded bg-blue-900/40 hover:bg-blue-800/60 text-blue-300 border border-blue-700/50 font-mono transition">+ $(custom)</button>
+                <button @click="insertTokenTag('$(date)')" class="px-2 py-0.5 rounded bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-300 border border-indigo-700/50 font-mono transition">+ $(date)</button>
+                <button @click="insertTokenTag('$(dismiss)')" class="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-600 font-mono transition">+ $(dismiss)</button>
+                <button @click="insertTokenTag('$(entry_price)')" class="px-2 py-0.5 rounded bg-amber-900/40 hover:bg-amber-800/60 text-amber-300 border border-amber-700/50 font-mono transition">+ $(entry_price)</button>
+                <button @click="insertTokenTag('$(entry_range)')" class="px-2 py-0.5 rounded bg-amber-900/40 hover:bg-amber-800/60 text-amber-300 border border-amber-700/50 font-mono transition">+ $(entry_range)</button>
+                <button @click="insertTokenTag('$(entry_time)')" class="px-2 py-0.5 rounded bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-300 border border-cyan-700/50 font-mono transition">+ $(entry_time)</button>
+                <button @click="insertTokenTag('$(entry)')" class="px-2 py-0.5 rounded bg-amber-900/40 hover:bg-amber-800/60 text-amber-300 border border-amber-700/50 font-mono transition">+ $(entry)</button>
+                <button @click="insertTokenTag('$(gale)')" class="px-2 py-0.5 rounded bg-purple-900/40 hover:bg-purple-800/60 text-purple-300 border border-purple-700/50 font-mono transition">+ $(gale)</button>
+                <button @click="insertTokenTag('$(indicator)')" class="px-2 py-0.5 rounded bg-blue-900/40 hover:bg-blue-800/60 text-blue-300 border border-blue-700/50 font-mono transition">+ $(indicator)</button>
+                <button @click="insertTokenTag('$(otc)')" class="px-2 py-0.5 rounded bg-teal-900/40 hover:bg-teal-800/60 text-teal-300 border border-teal-700/50 font-mono transition">+ $(otc)</button>
+                <button @click="insertTokenTag('$(period_digit)')" class="px-2 py-0.5 rounded bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-300 border border-cyan-700/50 font-mono transition">+ $(period_digit)</button>
+                <button @click="insertTokenTag('$(period_name)')" class="px-2 py-0.5 rounded bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-300 border border-cyan-700/50 font-mono transition">+ $(period_name)</button>
+                <button @click="insertTokenTag('$(period)')" class="px-2 py-0.5 rounded bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-300 border border-cyan-700/50 font-mono transition">+ $(period)</button>
+                <button @click="insertTokenTag('$(price)')" class="px-2 py-0.5 rounded bg-amber-900/40 hover:bg-amber-800/60 text-amber-300 border border-amber-700/50 font-mono transition">+ $(price)</button>
+                <button @click="insertTokenTag('$(profit_price)')" class="px-2 py-0.5 rounded bg-purple-900/40 hover:bg-purple-800/60 text-purple-300 border border-purple-700/50 font-mono transition">+ $(profit_price)</button>
+                <button @click="insertTokenTag('$(profit)')" class="px-2 py-0.5 rounded bg-purple-900/40 hover:bg-purple-800/60 text-purple-300 border border-purple-700/50 font-mono transition">+ $(profit)</button>
+                <button @click="insertTokenTag('$(stoploss)')" class="px-2 py-0.5 rounded bg-rose-900/40 hover:bg-rose-800/60 text-rose-300 border border-rose-700/50 font-mono transition">+ $(stoploss)</button>
+                <button @click="insertTokenTag('$(symbol)')" class="px-2 py-0.5 rounded bg-blue-900/40 hover:bg-blue-800/60 text-blue-300 border border-blue-700/50 font-mono transition">+ $(symbol)</button>
+                <button @click="insertTokenTag('$(time_entry)')" class="px-2 py-0.5 rounded bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-300 border border-cyan-700/50 font-mono transition">+ $(time_entry)</button>
+                <button @click="insertTokenTag('$(timezone)')" class="px-2 py-0.5 rounded bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-300 border border-indigo-700/50 font-mono transition">+ $(timezone)</button>
+                <button @click="insertTokenTag('$(variable)')" class="px-2 py-0.5 rounded bg-yellow-900/40 hover:bg-yellow-800/60 text-yellow-300 border border-yellow-700/50 font-mono transition">+ $(variable)</button>
+              </div>
+            </div>
+
+            <!-- EDITABLE TEXTAREA FOR TEMPLATE -->
+            <div>
+              <textarea 
+                ref="templateTextarea"
+                v-model="customTemplateText" 
+                @input="debounceExactTest"
+                rows="5" 
+                placeholder="Escribe o edita aquí el template con $(symbol), $(action), TP$(index), $(stoploss), etc..."
+                class="w-full bg-dark-900 border border-dark-700 rounded-lg p-2.5 text-xs font-mono text-cyan-300 focus:outline-none focus:border-blue-500 transition leading-relaxed"></textarea>
+            </div>
+
+            <!-- LIVE RESULTS: EXTRACTED SIGNALS DISPLAY -->
+            <div class="bg-dark-900/90 border border-dark-750 rounded-lg p-3">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
+                  <i class="fa-solid fa-square-poll-vertical text-blue-400"></i> Resultado de parse_template:
+                </span>
+                <div class="flex items-center gap-2">
+                  <button 
+                    v-if="exactTestResult.signals_json"
+                    @click="copyToClipboard(exactTestResult.signals_json, 'JSON copiado')"
+                    class="text-[11px] text-gray-400 hover:text-white px-2 py-0.5 bg-dark-800 rounded border border-dark-700 transition">
+                    <i class="fa-regular fa-copy"></i> Copiar JSON
+                  </button>
+                  <button 
+                    v-if="exactTestResult.is_match"
+                    @click="openCreateTemplateModal()"
+                    class="text-[11px] bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 px-2.5 py-0.5 rounded font-medium transition flex items-center gap-1"
+                    title="Guardar este template coincidente en la base de datos vinculado al canal">
+                    <i class="fa-solid fa-bookmark"></i> Guardar como Nuevo
+                  </button>
+                  <button 
+                    v-if="exactTestResult.is_match && selectedTemplateForEditor"
+                    @click="quickUpdateSelectedTemplate"
+                    class="text-[11px] bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 px-2.5 py-0.5 rounded font-medium transition flex items-center gap-1"
+                    title="Sobrescribir la plantilla seleccionada con esta sintaxis">
+                    <i class="fa-solid fa-floppy-disk"></i> Actualizar #{{ selectedTemplateForEditor }}
+                  </button>
+                  <button 
+                    v-if="exactTestResult.is_match"
+                    @click="useAsGroundTruth(exactTestResult.signals_json)"
+                    class="text-[11px] bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 px-2.5 py-0.5 rounded font-medium transition flex items-center gap-1">
+                    <i class="fa-solid fa-arrow-down"></i> Usar como Ground Truth
+                  </button>
+                </div>
+              </div>
+
+              <!-- If matched: breakdown cards and JSON -->
+              <div v-if="exactTestResult.is_match">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                  <div 
+                    v-for="(sig, sIdx) in parsedExactSignals" 
+                    :key="sIdx"
+                    class="bg-dark-800 border border-dark-700 rounded-lg p-2.5 text-xs flex flex-col space-y-1">
+                    <div class="flex items-center justify-between">
+                      <span class="font-bold text-white flex items-center gap-1">
+                        <i class="fa-solid fa-chart-line text-blue-400"></i> Señal #{{ sIdx + 1 }}
+                      </span>
+                      <span 
+                        :class="sig.action ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border-rose-500/30'"
+                        class="text-[10px] px-2 py-0.5 rounded font-bold border">
+                        {{ sig.action ? 'BUY / CALL 🔼' : 'SELL / PUT 🔽' }}
+                      </span>
+                    </div>
+
+                    <div class="text-[11px] text-gray-300 grid grid-cols-2 gap-x-2 gap-y-1 pt-1">
+                      <div>Símbolo: <strong class="text-blue-300 font-mono">{{ formatSignalSymbol(sig.symbol) }}</strong></div>
+                      <div>Entrada: <strong class="text-amber-300 font-mono">{{ formatSignalEntry(sig.entry) }}</strong></div>
+                      <div>Stop Loss: <strong class="text-rose-300 font-mono">{{ formatSignalSL(sig.target) }}</strong></div>
+                      <div>Take Profits: <strong class="text-purple-300 font-mono">{{ formatSignalTPs(sig.target) }}</strong></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Formatted JSON -->
+                <pre class="max-h-[160px] overflow-y-auto bg-dark-950 p-2.5 rounded text-[11px] font-mono text-emerald-300 select-text">{{ exactTestResult.signals_json }}</pre>
+              </div>
+
+              <!-- If not matched -->
+              <div v-else class="text-center py-4 text-gray-400 text-xs">
+                <i class="fa-solid fa-triangle-exclamation text-amber-400 text-base mb-1"></i>
+                <p class="font-medium text-gray-300">La función <code>parse_template</code> retornó <code>None</code> (0% de coincidencia).</p>
+                <p class="text-[11px] text-gray-500 mt-0.5">El texto estático fuera de las etiquetas debe coincidir de forma precisa con el mensaje original.</p>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- SECTION 2: MENSAJE ORIGINAL & JSON GROUND TRUTH (PARALELOS) -->
           <div class="grid grid-cols-2 gap-4">
             
             <!-- RAW TEXT DISPLAY (COLUMNA 1) -->
@@ -333,7 +679,7 @@
                   <i class="fa-regular fa-copy"></i> Copiar
                 </button>
               </div>
-              <pre class="flex-1 min-h-[280px] max-h-[350px] bg-dark-900/90 border border-dark-750 p-3 rounded-lg text-xs font-mono text-emerald-300 whitespace-pre-wrap select-text leading-relaxed overflow-y-auto">{{ currentMessage.raw_text }}</pre>
+              <pre class="flex-1 min-h-[220px] max-h-[300px] bg-dark-900/90 border border-dark-750 p-3 rounded-lg text-xs font-mono text-emerald-300 whitespace-pre-wrap select-text leading-relaxed overflow-y-auto">{{ currentMessage.raw_text }}</pre>
             </div>
 
             <!-- GROUND TRUTH VERIFICATION PANEL (COLUMNA 2) -->
@@ -381,7 +727,7 @@
 
                 <!-- Default Gales List -->
                 <div class="flex items-center gap-1">
-                  <label class="text-[11px] font-medium text-gray-400 whitespace-nowrap" title="Lista de gales por defecto (ej: [], [1], [2])">Gales:</label>
+                  <label class="text-[11px] font-medium text-gray-400 whitespace-nowrap" title="Lista de gales por defecto">Gales:</label>
                   <input 
                     type="text" 
                     v-model="defaultGalesInput" 
@@ -427,12 +773,6 @@
 
                   <!-- Helper Toolbar -->
                   <div class="flex items-center gap-1.5">
-                    <div class="flex items-center gap-1 mr-1 bg-dark-900/80 px-1.5 py-0.5 rounded border border-dark-700 text-[10px]">
-                      <span class="text-gray-400">Gale rápido:</span>
-                      <button @click="setQuickGales('[]')" :class="defaultGalesInput.trim() === '[]' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'" class="px-1 rounded font-mono transition">[]</button>
-                      <button @click="setQuickGales('[1]')" :class="defaultGalesInput.trim() === '[1]' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'" class="px-1 rounded font-mono transition">[1]</button>
-                      <button @click="setQuickGales('[2]')" :class="defaultGalesInput.trim() === '[2]' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'" class="px-1 rounded font-mono transition">[2]</button>
-                    </div>
                     <button 
                       @click="beautifyJson" 
                       title="Formatear JSON"
@@ -449,7 +789,7 @@
 
                 <textarea 
                   v-model="validation.ground_truth_json" 
-                  rows="7" 
+                  rows="6" 
                   placeholder='Introduce o edita aquí el JSON con la información real de las señales...'
                   class="w-full flex-1 min-h-[140px] max-h-[180px] bg-dark-900 border border-dark-700 rounded-lg p-2.5 text-xs font-mono text-blue-300 focus:outline-none focus:border-blue-500 transition leading-relaxed"></textarea>
               </div>
@@ -479,109 +819,528 @@
 
           </div>
 
-          <!-- ROW 2: PARSERS COMPARISON: parse_template vs parse_signal -->
-          <div class="grid grid-cols-2 gap-4">
-            
-            <!-- PARSE_TEMPLATE CARD -->
-            <div class="bg-dark-850 border border-dark-700 rounded-xl p-4 shadow-sm flex flex-col">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-xs font-semibold text-blue-400 flex items-center gap-1.5">
-                  <i class="fa-solid fa-cubes"></i> parse_template (Rust)
-                </span>
-                <span v-if="parseResult.match_score !== null" class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                  {{ parseResult.match_score }}% Match
-                </span>
-              </div>
-
-              <!-- Template selector -->
-              <div class="mb-2 flex items-center gap-2">
-                <select 
-                  v-model="selectedTemplateId" 
-                  @change="runParse"
-                  class="flex-1 bg-dark-800 border border-dark-700 rounded-lg px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500">
-                  <option :value="null">✨ Auto-detectar mejor template ({{ templates.length }})</option>
-                  <option v-for="t in templates" :key="t.id" :value="t.id">
-                    {{ t.name }}
-                  </option>
-                </select>
-                <button 
-                  @click="runParse" 
-                  title="Re-ejecutar análisis"
-                  class="px-2 py-1 bg-dark-800 hover:bg-dark-700 border border-dark-700 rounded-lg text-xs text-gray-300">
-                  <i class="fa-solid fa-arrows-rotate" :class="{'fa-spin': parsing}"></i>
-                </button>
-              </div>
-
-              <!-- JSON Viewer -->
-              <div class="flex-1 min-h-[160px] max-h-[220px] bg-dark-900/90 border border-dark-750 rounded-lg p-2.5 overflow-y-auto font-mono text-[11px] text-gray-300 select-text">
-                <div v-if="parsing" class="text-center py-8 text-gray-500 text-xs">
-                  <i class="fa-solid fa-spinner fa-spin text-blue-400"></i> Analizando con parse_template...
-                </div>
-                <pre v-else-if="parseResult.parse_template_json" class="whitespace-pre-wrap">{{ parseResult.parse_template_json }}</pre>
-                <div v-else class="text-center py-8 text-gray-500 text-xs">
-                  No hubo coincidencia con ninguna plantilla.
-                </div>
-              </div>
-
-              <!-- Actions -->
-              <div class="mt-2 flex items-center justify-between text-[11px]">
-                <span class="text-gray-500 font-mono">{{ parseResult.parse_template_us }} µs</span>
-                <button 
-                  v-if="parseResult.parse_template_json"
-                  @click="useAsGroundTruth(parseResult.parse_template_json)"
-                  class="bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 px-2.5 py-1 rounded-lg font-medium transition flex items-center gap-1">
-                  <i class="fa-solid fa-arrow-down"></i> Usar como Ground Truth
-                </button>
-              </div>
-            </div>
-
-            <!-- PARSE_SIGNAL CARD -->
-            <div class="bg-dark-850 border border-dark-700 rounded-xl p-4 shadow-sm flex flex-col">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
-                  <i class="fa-solid fa-wand-magic-sparkles"></i> parse_signal (Rust Core)
-                </span>
-                <span v-if="parseResult.detected_signal_count > 0" class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  {{ parseResult.detected_signal_count }} Señal(es)
-                </span>
-                <span v-else class="text-[10px] px-2 py-0.5 rounded-full bg-dark-700 text-gray-400">
-                  Sin señal detectada
-                </span>
-              </div>
-
-              <div class="mb-2 text-xs text-gray-400 h-[26px] flex items-center">
-                <span>Motor autónomo de tokenización y extracción</span>
-              </div>
-
-              <!-- JSON Viewer -->
-              <div class="flex-1 min-h-[160px] max-h-[220px] bg-dark-900/90 border border-dark-750 rounded-lg p-2.5 overflow-y-auto font-mono text-[11px] text-gray-300 select-text">
-                <div v-if="parsing" class="text-center py-8 text-gray-500 text-xs">
-                  <i class="fa-solid fa-spinner fa-spin text-emerald-400"></i> Analizando con parse_signal...
-                </div>
-                <pre v-else-if="parseResult.parse_signal_json" class="whitespace-pre-wrap">{{ parseResult.parse_signal_json }}</pre>
-                <div v-else class="text-center py-8 text-gray-500 text-xs">
-                  No se detectaron tokens de señales.
-                </div>
-              </div>
-
-              <!-- Actions -->
-              <div class="mt-2 flex items-center justify-between text-[11px]">
-                <span class="text-gray-500 font-mono">{{ parseResult.parse_signal_us }} µs</span>
-                <button 
-                  v-if="parseResult.parse_signal_json"
-                  @click="useAsGroundTruth(parseResult.parse_signal_json)"
-                  class="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-lg font-medium transition flex items-center gap-1">
-                  <i class="fa-solid fa-arrow-down"></i> Usar como Ground Truth
-                </button>
-              </div>
-            </div>
-
-          </div>
-
         </div>
 
       </div>
 
+    </div>
+
+    <!-- MODAL 1: MULTI-SENDER SELECTOR MODAL (TELEGRAM ONLY) -->
+    <div v-if="showMultiSenderModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div class="bg-dark-850 border border-dark-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl flex flex-col max-h-[85vh]">
+        <div class="flex items-center justify-between pb-3 border-b border-dark-700">
+          <div>
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-paper-plane text-blue-400"></i> Seleccionar Canales de Telegram
+            </h3>
+            <p class="text-xs text-gray-400 mt-0.5">Se omiten automáticamente todos los remitentes de WhatsApp (wa*).</p>
+          </div>
+          <button @click="showMultiSenderModal = false" class="text-gray-400 hover:text-white">
+            <i class="fa-solid fa-xmark text-lg"></i>
+          </button>
+        </div>
+
+        <!-- Search & Quick Selection Buttons -->
+        <div class="py-3 flex items-center justify-between gap-3 text-xs">
+          <div class="relative flex-1">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-500 text-xs"></i>
+            <input 
+              v-model="senderSearch" 
+              type="text" 
+              placeholder="Buscar canal de Telegram..."
+              class="w-full bg-dark-900 border border-dark-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <button 
+            @click="selectAllSenders" 
+            class="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-lg font-medium transition whitespace-nowrap">
+            Seleccionar Todos ({{ filteredSenders.length }})
+          </button>
+          <button 
+            @click="selectedSenders = []" 
+            class="px-3 py-1.5 bg-dark-800 hover:bg-dark-750 text-gray-300 border border-dark-700 rounded-lg transition whitespace-nowrap">
+            Deseleccionar
+          </button>
+        </div>
+
+        <!-- Senders Checkbox List -->
+        <div class="flex-1 overflow-y-auto divide-y divide-dark-750 bg-dark-900/50 rounded-xl border border-dark-700 p-2 space-y-1">
+          <label 
+            v-for="s in filteredSenders" 
+            :key="s.id"
+            class="flex items-center justify-between p-2 rounded-lg hover:bg-dark-800 cursor-pointer transition select-none">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <input 
+                type="checkbox" 
+                :value="s.display_name" 
+                v-model="selectedSenders"
+                class="rounded bg-dark-900 border-dark-600 text-blue-600 focus:ring-0">
+              <span class="text-xs text-gray-200 truncate">{{ s.display_name }}</span>
+            </div>
+            <span class="text-[11px] font-mono text-gray-400 shrink-0 bg-dark-800 px-2 py-0.5 rounded border border-dark-700">
+              {{ s.messages_count }} msgs
+            </span>
+          </label>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-between pt-4 border-t border-dark-700 text-xs">
+          <span class="text-gray-400">
+            Canales seleccionados: <strong class="text-blue-400">{{ selectedSenders.length }}</strong> de {{ senders.length }}
+          </span>
+          <div class="flex gap-2">
+            <button @click="showMultiSenderModal = false" class="px-4 py-1.5 bg-dark-800 hover:bg-dark-700 text-gray-300 rounded-lg">
+              Cerrar
+            </button>
+            <button @click="applySenderSelection" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg shadow">
+              Aplicar Filtro
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 2: BATCH TESTING & RESULTS MODAL -->
+    <div v-if="showBatchModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div class="bg-dark-850 border border-dark-700 rounded-2xl w-full max-w-4xl p-6 shadow-2xl flex flex-col max-h-[90vh]">
+        <div class="flex items-center justify-between pb-3 border-b border-dark-700">
+          <div>
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-flask-vial text-amber-400"></i> Pruebas Globales por Lote (parse_template)
+            </h3>
+            <p class="text-xs text-gray-400 mt-0.5">Evalúa el comportamiento estricto al 100% y la cantidad de señales extraídas en múltiples canales de Telegram.</p>
+          </div>
+          <button @click="showBatchModal = false" class="text-gray-400 hover:text-white">
+            <i class="fa-solid fa-xmark text-lg"></i>
+          </button>
+        </div>
+
+        <!-- Mode Selector & Trigger -->
+        <div class="py-3 flex items-center justify-between gap-3 text-xs border-b border-dark-700/80">
+          <div class="flex bg-dark-900 p-1 rounded-lg border border-dark-700">
+            <button 
+              @click="batchMode = 'at_least_one'"
+              :class="batchMode === 'at_least_one' ? 'bg-amber-600 text-white font-semibold' : 'text-gray-400 hover:text-white'"
+              class="px-3 py-1 rounded transition flex items-center gap-1.5">
+              <i class="fa-solid fa-bolt-lightning text-[10px]"></i> 1 por canal
+            </button>
+            <button 
+              @click="batchMode = 'all'"
+              :class="batchMode === 'all' ? 'bg-blue-600 text-white font-semibold' : 'text-gray-400 hover:text-white'"
+              class="px-3 py-1 rounded transition flex items-center gap-1.5">
+              <i class="fa-solid fa-play text-[10px]"></i> Todos los mensajes
+            </button>
+            <button 
+              @click="batchMode = 'selected'"
+              :class="batchMode === 'selected' ? 'bg-purple-600 text-white font-semibold' : 'text-gray-400 hover:text-white'"
+              class="px-3 py-1 rounded transition flex items-center gap-1.5">
+              <i class="fa-solid fa-check-double text-[10px]"></i> Marcados ({{ selectedIds.length }})
+            </button>
+          </div>
+
+          <button 
+            @click="runBatchExecution" 
+            :disabled="batchRunning"
+            class="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 shadow transition">
+            <i class="fa-solid fa-play" :class="{'fa-spin': batchRunning}"></i>
+            <span>{{ batchRunning ? 'Ejecutando pruebas...' : 'Iniciar Prueba Global' }}</span>
+          </button>
+        </div>
+
+        <!-- Active Template Syntax Pill -->
+        <div class="py-2.5 text-xs flex items-center justify-between text-gray-400">
+          <div class="truncate max-w-[80%]">
+            <span class="text-gray-400">Template activo: </span>
+            <code class="text-cyan-300 font-mono text-[11px] bg-dark-900 px-2 py-0.5 rounded border border-dark-750 truncate">
+              {{ (customTemplateText || '').replace(/\n/g, ' ↵ ') }}
+            </code>
+          </div>
+          <span class="text-[11px] text-gray-500">
+            Canales: {{ selectedSenders.length > 0 ? selectedSenders.length : senders.length }} Telegram
+          </span>
+        </div>
+
+        <!-- Summary Metrics Grid -->
+        <div v-if="batchResult" class="grid grid-cols-6 gap-2 py-3 border-y border-dark-700/80 text-center text-xs">
+          <div class="bg-dark-900 p-2.5 rounded-lg border border-dark-750">
+            <span class="text-gray-400 text-[10px] block">Total Evaluados</span>
+            <strong class="text-white text-sm font-mono">{{ batchResult.total_tested }}</strong>
+          </div>
+          <div class="bg-dark-900 p-2.5 rounded-lg border border-dark-750">
+            <span class="text-gray-400 text-[10px] block">Coincidencias (100%)</span>
+            <strong class="text-emerald-400 text-sm font-mono">{{ batchResult.matched_count }}</strong>
+          </div>
+          <div class="bg-dark-900 p-2.5 rounded-lg border border-dark-750">
+            <span class="text-gray-400 text-[10px] block">Fallos (None)</span>
+            <strong class="text-rose-400 text-sm font-mono">{{ batchResult.failed_count }}</strong>
+          </div>
+          <div class="bg-dark-900 p-2.5 rounded-lg border border-blue-500/40">
+            <span class="text-blue-300 text-[10px] block font-semibold">Total Señales Extraídas</span>
+            <strong class="text-blue-400 text-sm font-mono font-bold">🎯 {{ batchResult.signals_total_count }}</strong>
+          </div>
+          <div class="bg-dark-900 p-2.5 rounded-lg border border-dark-750">
+            <span class="text-gray-400 text-[10px] block">Tasa Coincidencia</span>
+            <strong :class="batchResult.match_rate_pct >= 50 ? 'text-emerald-400' : 'text-amber-400'" class="text-sm font-mono">
+              {{ batchResult.match_rate_pct }}%
+            </strong>
+          </div>
+          <div class="bg-dark-900 p-2.5 rounded-lg border border-dark-750">
+            <span class="text-gray-400 text-[10px] block">Latencia Media</span>
+            <strong class="text-purple-400 text-sm font-mono">{{ batchResult.avg_latency_us }} µs</strong>
+          </div>
+        </div>
+
+        <!-- Filter & Search Results List -->
+        <div v-if="batchResult" class="flex items-center justify-between pt-3 pb-2 text-xs">
+          <div class="flex items-center gap-1.5">
+            <span class="text-gray-400 text-[11px]">Filtrar resultados:</span>
+            <button 
+              @click="batchResultsFilter = 'all'" 
+              :class="batchResultsFilter === 'all' ? 'bg-dark-700 text-white font-bold' : 'text-gray-400 hover:text-white'"
+              class="px-2 py-0.5 rounded text-[11px]">
+              Todos ({{ batchResult.results.length }})
+            </button>
+            <button 
+              @click="batchResultsFilter = 'matched'" 
+              :class="batchResultsFilter === 'matched' ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 font-bold' : 'text-gray-400 hover:text-white'"
+              class="px-2 py-0.5 rounded text-[11px]">
+              Solo Coincidencias ({{ batchResult.matched_count }})
+            </button>
+            <button 
+              @click="batchResultsFilter = 'failed'" 
+              :class="batchResultsFilter === 'failed' ? 'bg-rose-600/30 text-rose-300 border border-rose-500/40 font-bold' : 'text-gray-400 hover:text-white'"
+              class="px-2 py-0.5 rounded text-[11px]">
+              Solo Fallos ({{ batchResult.failed_count }})
+            </button>
+          </div>
+        </div>
+
+        <!-- Results Table -->
+        <div v-if="batchResult" class="flex-1 overflow-y-auto bg-dark-900/60 rounded-xl border border-dark-700 divide-y divide-dark-750 text-xs">
+          <div 
+            v-for="r in filteredBatchResults" 
+            :key="r.message_id"
+            class="p-2.5 flex items-center justify-between hover:bg-dark-800/80 transition select-text">
+            <div class="flex items-center gap-3 min-w-0 flex-1 pr-4">
+              <span 
+                :class="r.is_match ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border-rose-500/30'"
+                class="px-2 py-0.5 rounded text-[10px] font-bold border shrink-0">
+                {{ r.is_match ? 'MATCH (Some)' : 'NONE' }}
+              </span>
+
+              <span v-if="r.is_match" class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 text-[10px] font-mono shrink-0 font-bold">
+                🎯 {{ r.signals_count }} señal(es)
+              </span>
+
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <strong class="text-blue-400 text-[11px] truncate">{{ r.sender_name }}</strong>
+                  <span class="text-gray-500 text-[10px] font-mono">#{{ r.message_id }}</span>
+                </div>
+                <p class="text-[11px] text-gray-300 font-mono truncate">{{ r.raw_text_preview }}</p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2 shrink-0">
+              <span class="text-gray-500 font-mono text-[10px]">{{ r.latency_us }} µs</span>
+              <button 
+                @click="inspectMessageFromBatch(r.message_id)"
+                class="px-2.5 py-1 bg-dark-800 hover:bg-blue-600 hover:text-white text-gray-300 border border-dark-700 rounded text-[11px] transition">
+                Inspeccionar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-else-if="batchRunning" class="flex-1 flex flex-col items-center justify-center p-12 text-gray-400">
+          <i class="fa-solid fa-spinner fa-spin text-3xl mb-3 text-amber-400"></i>
+          <p class="text-sm font-medium">Ejecutando pruebas de <code>parse_template</code> en lote...</p>
+        </div>
+
+        <div v-else class="flex-1 flex flex-col items-center justify-center p-12 text-gray-500">
+          <i class="fa-solid fa-flask-vial text-3xl mb-3 text-dark-700"></i>
+          <p class="text-xs">Haz clic en <strong>Iniciar Prueba Global</strong> para evaluar la plantilla actual contra los canales de Telegram.</p>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-end pt-4 border-t border-dark-700 text-xs">
+          <button @click="showBatchModal = false" class="px-4 py-1.5 bg-dark-800 hover:bg-dark-700 text-gray-300 rounded-lg">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 3: TOKENIZER & CREADOR DE PLANTILLAS -->
+    <div v-if="showTokenizerModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div class="bg-dark-850 border border-purple-500/40 rounded-2xl w-full max-w-3xl p-6 shadow-2xl flex flex-col max-h-[90vh] space-y-4">
+        <div class="flex items-center justify-between pb-3 border-b border-dark-700">
+          <div>
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-wand-magic-sparkles text-purple-400"></i> Tokenizer & Creador de Plantillas
+            </h3>
+            <p class="text-xs text-gray-400 mt-0.5">Analiza léxicamente el texto, detecta tokens con Rust y genera plantillas estructuradas con <code>$(etiquetas)</code>.</p>
+          </div>
+          <button @click="showTokenizerModal = false" class="text-gray-400 hover:text-white">
+            <i class="fa-solid fa-xmark text-lg"></i>
+          </button>
+        </div>
+
+        <!-- Input Textarea for Tokenizer -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5 text-xs text-gray-300">
+            <span class="font-medium">Texto para tokenizar:</span>
+            <div class="flex items-center gap-2">
+              <button 
+                v-if="currentMessage"
+                @click="loadCurrentMessageIntoTokenizer" 
+                class="px-2 py-0.5 bg-dark-800 hover:bg-dark-700 text-purple-300 border border-purple-500/30 rounded text-[11px] transition">
+                <i class="fa-solid fa-file-import"></i> Cargar mensaje actual
+              </button>
+              <button 
+                @click="tokenizerInput = ''" 
+                class="px-2 py-0.5 bg-dark-800 hover:bg-dark-700 text-gray-400 rounded text-[11px] transition">
+                Limpiar
+              </button>
+            </div>
+          </div>
+          <textarea 
+            v-model="tokenizerInput" 
+            rows="4" 
+            placeholder="Pega aquí el texto de una señal para tokenizarlo..."
+            class="w-full bg-dark-900 border border-dark-700 rounded-lg p-2.5 text-xs font-mono text-emerald-300 focus:outline-none focus:border-purple-500 transition leading-relaxed"></textarea>
+        </div>
+
+        <!-- Tokenize Action Button -->
+        <div class="flex items-center justify-between">
+          <button 
+            @click="runTokenizer" 
+            :disabled="tokenizing || !tokenizerInput.trim()"
+            class="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 shadow transition">
+            <i class="fa-solid fa-magnifying-glass" :class="{'fa-spin': tokenizing}"></i>
+            <span>{{ tokenizing ? 'Tokenizando...' : 'Tokenizar Texto con Rust Core' }}</span>
+          </button>
+
+          <span v-if="tokenizerTokens.length > 0" class="text-[11px] font-mono text-gray-400">
+            {{ tokenizerTokens.length }} tokens detectados
+          </span>
+        </div>
+
+        <!-- Interactive Token Chips View -->
+        <div v-if="tokenizerTokens.length > 0" class="flex-1 overflow-y-auto bg-dark-900/80 rounded-xl border border-dark-700 p-3 space-y-2">
+          <div class="text-[11px] font-medium text-gray-400 flex items-center justify-between">
+            <span>Haz clic en cualquier ficha para convertirla en etiqueta:</span>
+            <button 
+              @click="autoGenerateTemplate" 
+              class="px-2.5 py-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded font-medium text-[11px] flex items-center gap-1">
+              <i class="fa-solid fa-wand-magic"></i> Auto-generar Template Sugerido
+            </button>
+          </div>
+
+          <!-- Chips Container -->
+          <div class="p-3 bg-dark-950 rounded-lg flex flex-wrap gap-1.5 leading-relaxed font-mono">
+            <div 
+              v-for="(tok, tIdx) in tokenizerTokens" 
+              :key="tIdx"
+              @click="openTokenTagMenu(tok, tIdx)"
+              :class="getTokenChipClass(tok)"
+              class="badge-chip cursor-pointer hover:ring-2 hover:ring-purple-400 transition"
+              :title="`Tipo: ${tok.kind} | Haz clic para reemplazar por etiqueta`">
+              <span>{{ tok.value }}</span>
+              <span class="text-[9px] opacity-70">({{ tok.kind }})</span>
+            </div>
+          </div>
+
+          <!-- Generated Template Preview -->
+          <div v-if="generatedTemplatePreview" class="pt-2">
+            <label class="text-[11px] font-medium text-gray-300 block mb-1">Plantilla Resultante:</label>
+            <textarea 
+              v-model="generatedTemplatePreview" 
+              rows="3" 
+              class="w-full bg-dark-950 border border-purple-500/30 rounded-lg p-2.5 text-xs font-mono text-cyan-300 focus:outline-none focus:border-purple-500 transition leading-relaxed"></textarea>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-between pt-3 border-t border-dark-700 text-xs">
+          <button @click="showTokenizerModal = false" class="px-4 py-1.5 bg-dark-800 hover:bg-dark-700 text-gray-300 rounded-lg">
+            Cancelar
+          </button>
+          <div class="flex items-center gap-2">
+            <button 
+              v-if="generatedTemplatePreview"
+              @click="openCreateTemplateModalFromTokenizer" 
+              class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg flex items-center gap-1.5 shadow transition"
+              title="Guardar esta plantilla generada y vincularla a un canal de Telegram">
+              <i class="fa-solid fa-folder-plus"></i>
+              <span>Guardar como Template de Canal</span>
+            </button>
+            <button 
+              v-if="generatedTemplatePreview"
+              @click="transferGeneratedTemplate" 
+              class="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg flex items-center gap-1.5 shadow transition">
+              <i class="fa-solid fa-arrow-right-to-bracket"></i>
+              <span>Transferir a parse_template y Probar</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 4: CREAR / EDITAR TEMPLATE PARA CANAL DE TELEGRAM -->
+    <div v-if="showCreateTemplateModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div class="bg-dark-850 border border-emerald-500/40 rounded-2xl w-full max-w-2xl p-6 shadow-2xl flex flex-col max-h-[90vh] space-y-4">
+        <!-- Header -->
+        <div class="flex items-center justify-between pb-3 border-b border-dark-700">
+          <div>
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+              <i v-if="editingTemplateId" class="fa-solid fa-pen-to-square text-amber-400"></i>
+              <i v-else class="fa-solid fa-folder-plus text-emerald-400"></i>
+              <span>{{ editingTemplateId ? `Editar Template #${editingTemplateId}` : 'Nuevo Template de Señal' }}</span>
+            </h3>
+            <p class="text-xs text-gray-400 mt-0.5">
+              {{ editingTemplateId ? 'Modifica el nombre, canal asignado o sintaxis de la plantilla existente.' : 'Vincula una nueva regla léxica a un canal de Telegram para validación con parse_template.' }}
+            </p>
+          </div>
+          <button @click="showCreateTemplateModal = false" class="text-gray-400 hover:text-white">
+            <i class="fa-solid fa-xmark text-lg"></i>
+          </button>
+        </div>
+
+        <div class="overflow-y-auto space-y-3.5 flex-1 pr-1 text-xs">
+          <!-- Canal de Telegram / Sender -->
+          <div>
+            <label class="block text-gray-300 font-semibold mb-1">
+              <i class="fa-brands fa-telegram text-sky-400"></i> Canal de Telegram / Sender:
+            </label>
+            <select 
+              v-model="newTemplateForm.sender_name"
+              class="w-full bg-dark-900 border border-dark-700 rounded-lg p-2.5 text-xs text-gray-100 focus:outline-none focus:border-emerald-500">
+              <option value="">(Sin canal específico / Global)</option>
+              <option v-for="s in senders" :key="s.id" :value="s.display_name">
+                {{ s.display_name }} ({{ s.messages_count }} msgs)
+              </option>
+            </select>
+          </div>
+
+          <!-- Nombre del Template -->
+          <div>
+            <label class="block text-gray-300 font-semibold mb-1">Nombre de la Plantilla:</label>
+            <input 
+              type="text" 
+              v-model="newTemplateForm.name"
+              placeholder="Ej: Scalp Oro M1 - Breakout"
+              class="w-full bg-dark-900 border border-dark-700 rounded-lg p-2.5 text-xs text-gray-100 focus:outline-none focus:border-emerald-500 font-medium">
+          </div>
+
+          <!-- Grid: Tipo y Prioridad -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-gray-300 font-semibold mb-1">Tipo de Mercado:</label>
+              <select 
+                v-model="newTemplateForm.template_type"
+                class="w-full bg-dark-900 border border-dark-700 rounded-lg p-2 text-xs text-gray-100 focus:outline-none focus:border-emerald-500">
+                <option value="market">Forex / Acciones / Índices (market)</option>
+                <option value="binary">Opciones Binarias (binary)</option>
+                <option value="crypto">Criptomonedas / Futuros (crypto)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-gray-300 font-semibold mb-1">Prioridad de Coincidencia:</label>
+              <input 
+                type="number" 
+                v-model.number="newTemplateForm.priority"
+                min="1" 
+                max="1000"
+                class="w-full bg-dark-900 border border-dark-700 rounded-lg p-2 text-xs text-gray-100 focus:outline-none focus:border-emerald-500">
+            </div>
+          </div>
+
+          <!-- Sintaxis del Template (pattern_syntax) -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-gray-300 font-semibold">
+                Sintaxis del Template (<code>pattern_syntax</code>):
+              </label>
+              <span class="text-[10px] text-gray-400">Usa $(etiqueta) y TP$(index)</span>
+            </div>
+            
+            <!-- Helper tag insertion in modal -->
+            <div class="flex flex-wrap items-center gap-1 mb-1.5 text-[10px]">
+              <span class="text-gray-400 mr-1 font-medium">Insertar:</span>
+              <button type="button" @click="insertTagIntoNewTemplate('$(_)')" class="px-1.5 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-600 font-mono">+ $(_)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(action)')" class="px-1.5 py-0.5 rounded bg-emerald-900/40 hover:bg-emerald-800/60 text-emerald-300 border border-emerald-700/50 font-mono">+ $(action)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(custom)')" class="px-1.5 py-0.5 rounded bg-blue-900/40 hover:bg-blue-800/60 text-blue-300 border border-blue-700/50 font-mono">+ $(custom)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(date)')" class="px-1.5 py-0.5 rounded bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-300 border border-indigo-700/50 font-mono">+ $(date)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(dismiss)')" class="px-1.5 py-0.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-600 font-mono">+ $(dismiss)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(entry_price)')" class="px-1.5 py-0.5 rounded bg-amber-900/40 hover:bg-amber-800/60 text-amber-300 border border-amber-700/50 font-mono">+ $(entry_price)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(entry_range)')" class="px-1.5 py-0.5 rounded bg-amber-900/40 hover:bg-amber-800/60 text-amber-300 border border-amber-700/50 font-mono">+ $(entry_range)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(entry_time)')" class="px-1.5 py-0.5 rounded bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-300 border border-cyan-700/50 font-mono">+ $(entry_time)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(entry)')" class="px-1.5 py-0.5 rounded bg-amber-900/40 hover:bg-amber-800/60 text-amber-300 border border-amber-700/50 font-mono">+ $(entry)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(gale)')" class="px-1.5 py-0.5 rounded bg-purple-900/40 hover:bg-purple-800/60 text-purple-300 border border-purple-700/50 font-mono">+ $(gale)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(indicator)')" class="px-1.5 py-0.5 rounded bg-blue-900/40 hover:bg-blue-800/60 text-blue-300 border border-blue-700/50 font-mono">+ $(indicator)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(otc)')" class="px-1.5 py-0.5 rounded bg-teal-900/40 hover:bg-teal-800/60 text-teal-300 border border-teal-700/50 font-mono">+ $(otc)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(period_digit)')" class="px-1.5 py-0.5 rounded bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-300 border border-cyan-700/50 font-mono">+ $(period_digit)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(period_name)')" class="px-1.5 py-0.5 rounded bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-300 border border-cyan-700/50 font-mono">+ $(period_name)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(period)')" class="px-1.5 py-0.5 rounded bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-300 border border-cyan-700/50 font-mono">+ $(period)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(price)')" class="px-1.5 py-0.5 rounded bg-amber-900/40 hover:bg-amber-800/60 text-amber-300 border border-amber-700/50 font-mono">+ $(price)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(profit_price)')" class="px-1.5 py-0.5 rounded bg-purple-900/40 hover:bg-purple-800/60 text-purple-300 border border-purple-700/50 font-mono">+ $(profit_price)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(profit)')" class="px-1.5 py-0.5 rounded bg-purple-900/40 hover:bg-purple-800/60 text-purple-300 border border-purple-700/50 font-mono">+ $(profit)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(stoploss)')" class="px-1.5 py-0.5 rounded bg-rose-900/40 hover:bg-rose-800/60 text-rose-300 border border-rose-700/50 font-mono">+ $(stoploss)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(symbol)')" class="px-1.5 py-0.5 rounded bg-blue-900/40 hover:bg-blue-800/60 text-blue-300 border border-blue-700/50 font-mono">+ $(symbol)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(time_entry)')" class="px-1.5 py-0.5 rounded bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-300 border border-cyan-700/50 font-mono">+ $(time_entry)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(timezone)')" class="px-1.5 py-0.5 rounded bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-300 border border-indigo-700/50 font-mono">+ $(timezone)</button>
+              <button type="button" @click="insertTagIntoNewTemplate('$(variable)')" class="px-1.5 py-0.5 rounded bg-yellow-900/40 hover:bg-yellow-800/60 text-yellow-300 border border-yellow-700/50 font-mono">+ $(variable)</button>
+            </div>
+
+            <textarea 
+              v-model="newTemplateForm.pattern_syntax"
+              rows="5" 
+              placeholder="Escribe la plantilla estructurada..."
+              class="w-full bg-dark-900 border border-dark-700 rounded-lg p-2.5 text-xs font-mono text-cyan-300 focus:outline-none focus:border-emerald-500 leading-relaxed"></textarea>
+          </div>
+
+          <!-- Texto de Ejemplo -->
+          <div>
+            <label class="block text-gray-300 font-semibold mb-1">Mensaje de Ejemplo (Referencia):</label>
+            <textarea 
+              v-model="newTemplateForm.example_text"
+              rows="3" 
+              placeholder="Texto del mensaje real de la señal..."
+              class="w-full bg-dark-900 border border-dark-700 rounded-lg p-2.5 text-xs font-mono text-gray-400 focus:outline-none focus:border-dark-600 leading-relaxed"></textarea>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-between pt-3 border-t border-dark-700 text-xs">
+          <div class="flex items-center gap-2">
+            <button 
+              type="button" 
+              @click="showCreateTemplateModal = false" 
+              class="px-4 py-1.5 bg-dark-800 hover:bg-dark-700 text-gray-300 rounded-lg font-medium transition">
+              Cancelar
+            </button>
+            <button 
+              v-if="editingTemplateId"
+              type="button" 
+              @click="deleteSelectedTemplate(editingTemplateId)" 
+              class="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 rounded-lg font-medium flex items-center gap-1.5 transition">
+              <i class="fa-solid fa-trash-can"></i>
+              <span>Borrar Template</span>
+            </button>
+          </div>
+          <button 
+            type="button" 
+            @click="submitCreateTemplate" 
+            :disabled="savingTemplate || !newTemplateForm.pattern_syntax.trim()"
+            :class="editingTemplateId ? 'bg-amber-600 hover:bg-amber-500' : 'bg-emerald-600 hover:bg-emerald-500'"
+            class="px-4 py-1.5 disabled:opacity-50 text-white font-bold rounded-lg flex items-center gap-1.5 shadow transition">
+            <i class="fa-solid fa-floppy-disk" :class="{'fa-spin': savingTemplate}"></i>
+            <span>{{ savingTemplate ? 'Guardando...' : (editingTemplateId ? `Actualizar Template #${editingTemplateId}` : 'Guardar y Vincular al Canal') }}</span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- EXPORT TEST FILE MODAL -->
@@ -630,6 +1389,14 @@
       </div>
     </div>
 
+    <!-- FLOATING TOAST NOTIFICATION -->
+    <div 
+      v-if="saveMessage" 
+      class="fixed bottom-6 right-6 bg-dark-800/95 border border-emerald-500/60 text-emerald-200 px-4 py-3 rounded-xl shadow-2xl z-50 flex items-center gap-2.5 text-xs font-semibold backdrop-blur-md transition-all">
+      <i class="fa-solid fa-circle-check text-emerald-400 text-base"></i>
+      <span>{{ saveMessage }}</span>
+    </div>
+
   </div>
 
   <!-- VUE APPLICATION LOGIC -->
@@ -653,6 +1420,64 @@
         const showExportModal = ref(false);
         const defaultGalesInput = ref(localStorage.getItem('validator_default_gales') || '[]');
 
+        // Editable parse_template sandbox state
+        const templateTextarea = ref(null);
+        const customTemplateText = ref('');
+        const selectedTemplateForEditor = ref(null);
+        const exactTesting = ref(false);
+        const exactTestResult = reactive({
+          is_match: false,
+          signals_count: 0,
+          signals_json: null,
+          latency_us: 0
+        });
+
+        // Multi-sender state
+        const showMultiSenderModal = ref(false);
+        const selectedSenders = ref([]);
+        const senderSearch = ref('');
+
+        // Batch test state
+        const showBatchModal = ref(false);
+        const batchMode = ref('at_least_one');
+        const batchRunning = ref(false);
+        const batchResult = ref(null);
+        const batchResultsFilter = ref('all');
+
+        // Tokenizer modal state
+        const showTokenizerModal = ref(false);
+        const tokenizerInput = ref('');
+        const tokenizerTokens = ref([]);
+        const tokenizerEntities = ref({});
+        const tokenizing = ref(false);
+        const generatedTemplatePreview = ref('');
+
+        // Template sender link & CRUD state
+        const activeSenderFilter = ref('');
+        const includeGlobalTemplates = ref(false);
+        const loadingTemplates = ref(false);
+        const allTemplatesCount = ref(0);
+        const showCreateTemplateModal = ref(false);
+        const editingTemplateId = ref(null);
+        const savingTemplate = ref(false);
+        const newTemplateForm = reactive({
+          name: '',
+          sender_name: '',
+          pattern_syntax: '',
+          template_type: 'market',
+          description: '',
+          example_text: '',
+          priority: 100,
+          is_active: true
+        });
+
+        const effectiveSenderName = computed(() => {
+          if (activeSenderFilter.value) return activeSenderFilter.value;
+          if (filters.sender_name) return filters.sender_name;
+          if (currentMessage.value && currentMessage.value.sender_name) return currentMessage.value.sender_name;
+          return '';
+        });
+
         const pagination = reactive({
           page: 1,
           pageSize: 50,
@@ -673,8 +1498,15 @@
           parse_signal_us: 0,
           matched_template_id: null,
           matched_template_name: null,
+          matched_pattern: null,
+          matched_sender_name: null,
           match_score: null,
-          detected_signal_count: 0
+          detected_signal_count: 0,
+          exact_match: false,
+          exact_signals_count: 0,
+          exact_signals_json: null,
+          exact_latency_us: 0,
+          templates_tested_count: 0
         });
 
         const validation = reactive({
@@ -687,6 +1519,32 @@
         const exportOptions = reactive({
           format: 'suite',
           only_signals: false
+        });
+
+        const filteredSenders = computed(() => {
+          if (!senderSearch.value.trim()) return senders.value;
+          const q = senderSearch.value.toLowerCase();
+          return senders.value.filter(s => s.display_name.toLowerCase().includes(q));
+        });
+
+        const filteredBatchResults = computed(() => {
+          if (!batchResult.value) return [];
+          if (batchResultsFilter.value === 'matched') {
+            return batchResult.value.results.filter(r => r.is_match);
+          } else if (batchResultsFilter.value === 'failed') {
+            return batchResult.value.results.filter(r => !r.is_match);
+          }
+          return batchResult.value.results;
+        });
+
+        const parsedExactSignals = computed(() => {
+          if (!exactTestResult.signals_json) return [];
+          try {
+            const data = JSON.parse(exactTestResult.signals_json);
+            return Array.isArray(data.signals) ? data.signals : [];
+          } catch {
+            return [];
+          }
         });
 
         const isDefaultGalesValid = computed(() => {
@@ -751,27 +1609,13 @@
           if (!isDefaultGalesValid.value) return;
           localStorage.setItem('validator_default_gales', defaultGalesInput.value.trim());
 
-          // Update displayed Ground Truth JSON automatically
           try {
             const parsed = JSON.parse(validation.ground_truth_json);
             const updated = applyDefaultGalesToSignals(parsed, true);
             validation.ground_truth_json = JSON.stringify(updated, null, 2);
           } catch {
-            // Ignore if current ground truth JSON has syntax errors
+            // Ignore syntax errors
           }
-
-          // Also refresh parser JSON displays if they have empty gales
-          if (parseResult.parse_template_json) {
-            parseResult.parse_template_json = applyDefaultGalesToParserJson(parseResult.parse_template_json);
-          }
-          if (parseResult.parse_signal_json) {
-            parseResult.parse_signal_json = applyDefaultGalesToParserJson(parseResult.parse_signal_json);
-          }
-        }
-
-        function setQuickGales(val) {
-          defaultGalesInput.value = val;
-          onDefaultGalesChange();
         }
 
         const isJsonValid = computed(() => {
@@ -813,13 +1657,277 @@
           }
         }
 
-        async function loadTemplates() {
+        async function loadTemplates(sender = activeSenderFilter.value) {
+          loadingTemplates.value = true;
           try {
-            const res = await fetch('/api/v1/validator/templates');
+            const params = new URLSearchParams();
+            if (sender && sender.trim()) {
+              params.append('sender_name', sender.trim());
+              if (includeGlobalTemplates.value) {
+                params.append('include_global', 'true');
+              }
+            }
+            const res = await fetch(`/api/v1/validator/templates?${params.toString()}`);
             templates.value = await res.json();
+            if (!sender) {
+              allTemplatesCount.value = templates.value.length;
+            }
           } catch (e) {
             console.error('Error loading templates:', e);
+          } finally {
+            loadingTemplates.value = false;
           }
+        }
+
+        async function setTemplateSenderFilter(senderName, autoSelect = true) {
+          activeSenderFilter.value = senderName || '';
+          await loadTemplates(senderName);
+          if (templates.value.length > 0) {
+            const found = templates.value.find(t => t.id === selectedTemplateForEditor.value);
+            if (!found) {
+              if (autoSelect || !customTemplateText.value.trim()) {
+                selectedTemplateForEditor.value = templates.value[0].id;
+                customTemplateText.value = templates.value[0].pattern_syntax;
+                validation.template_name = templates.value[0].name;
+                await runExactTest();
+              }
+            }
+          } else {
+            selectedTemplateForEditor.value = null;
+          }
+        }
+
+        async function clearTemplateSenderFilter() {
+          activeSenderFilter.value = '';
+          await loadTemplates('');
+          if (templates.value.length > 0 && !selectedTemplateForEditor.value) {
+            selectedTemplateForEditor.value = templates.value[0].id;
+            customTemplateText.value = templates.value[0].pattern_syntax;
+            validation.template_name = templates.value[0].name;
+            await runExactTest();
+          }
+        }
+
+        async function reloadTemplatesForCurrentSender() {
+          await loadTemplates(activeSenderFilter.value);
+        }
+
+        async function onSenderFilterChange() {
+          await loadMessages(1);
+          if (filters.sender_name) {
+            await setTemplateSenderFilter(filters.sender_name, true);
+          } else {
+            await clearTemplateSenderFilter();
+          }
+        }
+
+        async function createNewTemplateFromEditor() {
+          const syntax = (customTemplateText.value || '').trim();
+          if (!syntax) {
+            alert('El contenido del template en el textarea no puede estar vacío.');
+            return;
+          }
+
+          savingTemplate.value = true;
+          try {
+            const currentTpl = templates.value.find(t => t.id === selectedTemplateForEditor.value);
+            const sender = currentTpl?.sender_name || activeSenderFilter.value || (currentMessage.value ? currentMessage.value.sender_name : (filters.sender_name || null));
+            
+            let templateName = '';
+            if (currentTpl && currentTpl.name) {
+              templateName = currentTpl.name.includes('(Nuevo)') ? `${currentTpl.name}*` : `${currentTpl.name} (Nuevo)`;
+            } else if (sender) {
+              templateName = `Plantilla - ${sender}`;
+            } else {
+              templateName = 'Nueva Plantilla';
+            }
+
+            const payload = {
+              name: templateName,
+              sender_name: sender,
+              template_type: currentTpl?.template_type || 'market',
+              priority: currentTpl?.priority ?? 100,
+              pattern_syntax: syntax,
+              example_text: currentMessage.value ? currentMessage.value.raw_text : (currentTpl?.example_text || ''),
+              description: currentTpl?.description || '',
+              is_active: currentTpl?.is_active ?? true
+            };
+
+            const res = await fetch('/api/v1/validator/templates', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.detail || 'Error al crear la nueva plantilla');
+            }
+
+            const saved = await res.json();
+            showToast(`Plantilla "${saved.name}" (#${saved.id}) creada y guardada exitosamente.`);
+
+            if (saved.sender_name) {
+              activeSenderFilter.value = saved.sender_name;
+            }
+
+            await loadStats();
+            await loadTemplates(activeSenderFilter.value);
+            selectedTemplateForEditor.value = saved.id;
+            customTemplateText.value = saved.pattern_syntax;
+            validation.template_name = saved.name;
+            await runParse();
+          } catch (e) {
+            alert('Error al guardar nueva plantilla: ' + e.message);
+          } finally {
+            savingTemplate.value = false;
+          }
+        }
+
+        function openCreateTemplateModal(prefillPattern = null) {
+          editingTemplateId.value = null;
+          const sender = activeSenderFilter.value || (currentMessage.value ? currentMessage.value.sender_name : (filters.sender_name || ''));
+          newTemplateForm.sender_name = sender;
+          newTemplateForm.pattern_syntax = typeof prefillPattern === 'string' ? prefillPattern : (customTemplateText.value || '');
+          newTemplateForm.example_text = currentMessage.value ? currentMessage.value.raw_text : '';
+          newTemplateForm.template_type = 'market';
+          newTemplateForm.priority = 100;
+          newTemplateForm.is_active = true;
+          newTemplateForm.description = '';
+          newTemplateForm.name = sender ? `Plantilla - ${sender}` : 'Nueva Plantilla';
+          showCreateTemplateModal.value = true;
+        }
+
+        function openEditTemplateModal() {
+          if (!selectedTemplateForEditor.value) return;
+          const tpl = templates.value.find(t => t.id === selectedTemplateForEditor.value);
+          if (!tpl) return;
+          editingTemplateId.value = tpl.id;
+          newTemplateForm.sender_name = tpl.sender_name || '';
+          newTemplateForm.name = tpl.name || '';
+          newTemplateForm.pattern_syntax = customTemplateText.value.trim() ? customTemplateText.value : (tpl.pattern_syntax || '');
+          newTemplateForm.template_type = tpl.template_type || 'market';
+          newTemplateForm.priority = tpl.priority ?? 100;
+          newTemplateForm.is_active = tpl.is_active ?? true;
+          newTemplateForm.description = tpl.description || '';
+          newTemplateForm.example_text = tpl.example_text || (currentMessage.value ? currentMessage.value.raw_text : '');
+          showCreateTemplateModal.value = true;
+        }
+
+        async function quickUpdateSelectedTemplate() {
+          if (!selectedTemplateForEditor.value) return;
+          if (!customTemplateText.value.trim()) {
+            alert('La sintaxis en el textarea no puede estar vacía.');
+            return;
+          }
+          savingTemplate.value = true;
+          try {
+            const res = await fetch(`/api/v1/validator/templates/${selectedTemplateForEditor.value}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                pattern_syntax: customTemplateText.value
+              })
+            });
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.detail || 'Error al actualizar template');
+            }
+            const updated = await res.json();
+            showToast(`Plantilla #${updated.id} "${updated.name}" actualizada exitosamente.`);
+            await loadStats();
+            await loadTemplates(activeSenderFilter.value);
+            selectedTemplateForEditor.value = updated.id;
+            await runParse();
+          } catch (e) {
+            alert('Error al actualizar template: ' + e.message);
+          } finally {
+            savingTemplate.value = false;
+          }
+        }
+
+        function openCreateTemplateModalFromTokenizer() {
+          if (!generatedTemplatePreview.value) return;
+          showTokenizerModal.value = false;
+          openCreateTemplateModal(generatedTemplatePreview.value);
+        }
+
+        function insertTagIntoNewTemplate(tag) {
+          newTemplateForm.pattern_syntax = (newTemplateForm.pattern_syntax ? newTemplateForm.pattern_syntax + ' ' : '') + tag;
+        }
+
+        async function submitCreateTemplate() {
+          if (!newTemplateForm.pattern_syntax.trim()) {
+            alert('Por favor escribe o inserta la sintaxis del template.');
+            return;
+          }
+          savingTemplate.value = true;
+          try {
+            const isEdit = editingTemplateId.value !== null;
+            const url = isEdit ? `/api/v1/validator/templates/${editingTemplateId.value}` : '/api/v1/validator/templates';
+            const method = isEdit ? 'PUT' : 'POST';
+            const res = await fetch(url, {
+              method,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(newTemplateForm)
+            });
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.detail || 'Error al guardar template');
+            }
+            const saved = await res.json();
+            showCreateTemplateModal.value = false;
+            showToast(
+              isEdit
+                ? `Plantilla #${saved.id} "${saved.name}" actualizada exitosamente.`
+                : `Plantilla "${saved.name}" guardada y vinculada a ${saved.sender_name || 'canal'} exitosamente.`
+            );
+
+            if (saved.sender_name) {
+              activeSenderFilter.value = saved.sender_name;
+            }
+            await loadStats();
+            await loadTemplates(activeSenderFilter.value);
+            selectedTemplateForEditor.value = saved.id;
+            customTemplateText.value = saved.pattern_syntax;
+            validation.template_name = saved.name;
+            await runParse();
+          } catch (e) {
+            alert('Error al guardar template: ' + e.message);
+          } finally {
+            savingTemplate.value = false;
+          }
+        }
+
+        async function deleteSelectedTemplate(targetId = null) {
+          const idToDelete = typeof targetId === 'number' ? targetId : selectedTemplateForEditor.value;
+          if (!idToDelete) return;
+          const tpl = templates.value.find(t => t.id === idToDelete);
+          const label = tpl ? `#${tpl.id} "${tpl.name}"` : `#${idToDelete}`;
+          if (!confirm(`¿Seguro que deseas borrar la plantilla ${label}?`)) {
+            return;
+          }
+          try {
+            const res = await fetch(`/api/v1/validator/templates/${idToDelete}`, {
+              method: 'DELETE'
+            });
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.detail || 'Error al eliminar template');
+            }
+            showCreateTemplateModal.value = false;
+            showToast(`Plantilla ${label} borrada correctamente.`);
+            await loadStats();
+            await loadTemplates(activeSenderFilter.value);
+            await runParse();
+          } catch (e) {
+            alert('Error al eliminar template: ' + e.message);
+          }
+        }
+
+        function showToast(msg) {
+          saveMessage.value = msg;
+          setTimeout(() => { saveMessage.value = ''; }, 3500);
         }
 
         async function loadMessages(page = pagination.page) {
@@ -830,7 +1938,13 @@
               page_size: pagination.pageSize,
               status: filters.status,
             });
-            if (filters.sender_name) params.append('sender_name', filters.sender_name);
+
+            if (selectedSenders.value.length > 0) {
+              selectedSenders.value.forEach(s => params.append('sender_names', s));
+            } else if (filters.sender_name) {
+              params.append('sender_name', filters.sender_name);
+            }
+
             if (filters.search) params.append('search', filters.search);
 
             const res = await fetch(`/api/v1/validator/messages?${params.toString()}`);
@@ -869,11 +1983,25 @@
           }
         }
 
+        function selectAllSenders() {
+          selectedSenders.value = filteredSenders.value.map(s => s.display_name);
+        }
+
+        function clearSenderSelection() {
+          selectedSenders.value = [];
+          filters.sender_name = '';
+          loadMessages(1);
+        }
+
+        function applySenderSelection() {
+          showMultiSenderModal.value = false;
+          loadMessages(1);
+        }
+
         async function selectMessage(msg) {
           currentMessage.value = msg;
           selectedTemplateId.value = null;
 
-          // If message was already validated, load existing ground truth
           if (msg.is_validated && msg.ground_truth_json) {
             validation.is_signal = msg.is_signal ?? true;
             validation.signals_count = msg.signals_count ?? 1;
@@ -887,24 +2015,32 @@
               validation.ground_truth_json = msg.ground_truth_json;
             }
           } else {
-            // New message: defaults
             validation.is_signal = true;
             validation.signals_count = 1;
             validation.template_name = '';
             validation.ground_truth_json = '[]';
           }
 
-          // Trigger live parser
+          // Refresh templates list (including any newly created templates) for this message's sender
+          if (!filters.sender_name && msg && msg.sender_name) {
+            activeSenderFilter.value = msg.sender_name;
+          }
+          await loadTemplates(activeSenderFilter.value);
+
+          // Iterate through ALL templates in the database (including newly created ones)
+          // to verify if any template matches this message
           await runParse();
         }
 
         async function runParse() {
           if (!currentMessage.value) return;
           parsing.value = true;
+          exactTesting.value = true;
           try {
             const payload = {
               text: currentMessage.value.raw_text,
-              template_id: selectedTemplateId.value
+              template_id: selectedTemplateId.value,
+              sender_name: currentMessage.value.sender_name || null
             };
             const res = await fetch('/api/v1/validator/parse', {
               method: 'POST',
@@ -915,24 +2051,79 @@
             if (data.parse_template_json) {
               data.parse_template_json = applyDefaultGalesToParserJson(data.parse_template_json);
             }
+            if (data.exact_signals_json) {
+              data.exact_signals_json = applyDefaultGalesToParserJson(data.exact_signals_json);
+            }
             if (data.parse_signal_json) {
               data.parse_signal_json = applyDefaultGalesToParserJson(data.parse_signal_json);
             }
             Object.assign(parseResult, data);
 
-            // If not previously validated, pre-populate Ground Truth automatically
+            if (data.exact_match && data.matched_template_id) {
+              // Ensure the matched template appears in the dropdown list even if it belongs to global/another sender
+              const existsInList = templates.value.some(item => item.id === data.matched_template_id);
+              if (!existsInList) {
+                templates.value.unshift({
+                  id: data.matched_template_id,
+                  name: data.matched_template_name || `Template #${data.matched_template_id}`,
+                  pattern_syntax: data.matched_pattern || '',
+                  sender_name: data.matched_sender_name || null,
+                  template_type: 'market',
+                  priority: 100,
+                  is_active: true
+                });
+              }
+              selectedTemplateForEditor.value = data.matched_template_id;
+              customTemplateText.value = data.matched_pattern || '';
+              validation.template_name = data.matched_template_name || '';
+
+              exactTestResult.is_match = true;
+              exactTestResult.signals_count = data.exact_signals_count || 1;
+              exactTestResult.signals_json = data.exact_signals_json || data.parse_template_json;
+              exactTestResult.latency_us = data.exact_latency_us || data.parse_template_us || 0;
+            } else {
+              // No template matched 100% across all templates
+              exactTestResult.is_match = false;
+              exactTestResult.signals_count = 0;
+              exactTestResult.signals_json = null;
+              exactTestResult.latency_us = data.exact_latency_us || data.parse_template_us || 0;
+
+              if (templates.value.length > 0) {
+                // Pre-select the first template of the current sender in the editor
+                selectedTemplateForEditor.value = templates.value[0].id;
+                customTemplateText.value = templates.value[0].pattern_syntax;
+                validation.template_name = templates.value[0].name || '';
+              } else if (data.matched_template_id && data.matched_pattern) {
+                selectedTemplateForEditor.value = data.matched_template_id;
+                customTemplateText.value = data.matched_pattern;
+                validation.template_name = data.matched_template_name || '';
+              } else {
+                selectedTemplateForEditor.value = null;
+              }
+            }
+
             if (!currentMessage.value.is_validated) {
-              if (data.detected_signal_count > 0 || (data.match_score && data.match_score > 50)) {
+              if (data.exact_match && data.exact_signals_json) {
+                validation.is_signal = true;
+                validation.signals_count = data.exact_signals_count || 1;
+                validation.template_name = data.matched_template_name || '';
+                try {
+                  const parsed = JSON.parse(data.exact_signals_json);
+                  const sigs = parsed.signals ? parsed.signals : parsed;
+                  const withGales = applyDefaultGalesToSignals(sigs, false);
+                  validation.ground_truth_json = JSON.stringify(withGales, null, 2);
+                } catch {
+                  validation.ground_truth_json = data.exact_signals_json;
+                }
+              } else if (data.detected_signal_count > 0 || (data.match_score && data.match_score > 50)) {
                 validation.is_signal = true;
                 validation.signals_count = data.detected_signal_count || 1;
                 validation.template_name = data.matched_template_name || '';
 
-                // Prefer parse_template if match_score is high, else parse_signal
                 const candidateJson = (data.match_score >= 80 && data.parse_template_json) 
                   ? data.parse_template_json 
                   : (data.parse_signal_json || '[]');
                 
-                // Format signals cleanly and inject default gales list
                 try {
                   const parsed = JSON.parse(candidateJson);
                   const sigs = parsed.signals ? parsed.signals : parsed;
@@ -941,19 +2132,265 @@
                 } catch {
                   validation.ground_truth_json = candidateJson;
                 }
-              } else {
-                // Detected as non-signal
-                validation.is_signal = false;
-                validation.signals_count = 0;
-                validation.template_name = '';
-                validation.ground_truth_json = '[]';
               }
             }
           } catch (e) {
             console.error('Error running parse:', e);
           } finally {
             parsing.value = false;
+            exactTesting.value = false;
           }
+        }
+
+        // --- Exact parse_template Execution ---
+        let exactTestTimeout = null;
+        function debounceExactTest() {
+          clearTimeout(exactTestTimeout);
+          exactTestTimeout = setTimeout(() => {
+            runExactTest();
+          }, 300);
+        }
+
+        async function runExactTest() {
+          if (!currentMessage.value || !customTemplateText.value.trim()) return;
+          exactTesting.value = true;
+          try {
+            const payload = {
+              text: currentMessage.value.raw_text,
+              pattern_syntax: customTemplateText.value
+            };
+            const res = await fetch('/api/v1/validator/test-exact', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            exactTestResult.is_match = data.is_match;
+            exactTestResult.signals_count = data.signals_count;
+            exactTestResult.signals_json = data.signals_json;
+            exactTestResult.latency_us = data.latency_us;
+          } catch (e) {
+            console.error('Error executing exact parse_template:', e);
+          } finally {
+            exactTesting.value = false;
+          }
+        }
+
+        function onTemplateSelectChange() {
+          if (!selectedTemplateForEditor.value) return;
+          const t = templates.value.find(item => item.id === selectedTemplateForEditor.value);
+          if (t) {
+            customTemplateText.value = t.pattern_syntax;
+            validation.template_name = t.name;
+            runExactTest();
+          }
+        }
+
+        function insertTokenTag(tag) {
+          const ta = templateTextarea.value;
+          if (!ta) {
+            customTemplateText.value += (customTemplateText.value ? ' ' : '') + tag;
+            runExactTest();
+            return;
+          }
+          const start = ta.selectionStart || customTemplateText.value.length;
+          const end = ta.selectionEnd || customTemplateText.value.length;
+          const text = customTemplateText.value;
+          customTemplateText.value = text.substring(0, start) + tag + text.substring(end);
+          ta.focus();
+          setTimeout(() => {
+            ta.setSelectionRange(start + tag.length, start + tag.length);
+            runExactTest();
+          }, 0);
+        }
+
+        // --- Batch Testing Functions ---
+        function openBatchWithMode(mode) {
+          batchMode.value = mode;
+          showBatchModal.value = true;
+          if (!batchResult.value) {
+            runBatchExecution();
+          }
+        }
+
+        async function runBatchExecution() {
+          if (!customTemplateText.value.trim()) {
+            alert('Por favor introduce primero un template en el textarea editable.');
+            return;
+          }
+          batchRunning.value = true;
+          try {
+            const payload = {
+              pattern_syntax: customTemplateText.value,
+              mode: batchMode.value,
+              sender_names: selectedSenders.value.length > 0 ? selectedSenders.value : null,
+              message_ids: batchMode.value === 'selected' ? selectedIds.value : null
+            };
+            const res = await fetch('/api/v1/validator/test-batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error(await res.text());
+            batchResult.value = await res.json();
+          } catch (e) {
+            alert('Error al ejecutar pruebas por lote: ' + e.message);
+          } finally {
+            batchRunning.value = false;
+          }
+        }
+
+        function inspectMessageFromBatch(mid) {
+          showBatchModal.value = false;
+          const found = messages.value.find(m => m.id === mid);
+          if (found) {
+            selectMessage(found);
+          } else {
+            fetch(`/api/v1/validator/messages/${mid}`)
+              .then(res => res.json())
+              .then(data => selectMessage(data));
+          }
+        }
+
+        // --- Tokenizer & Template Creator Functions ---
+        function openTokenizerModal() {
+          showTokenizerModal.value = true;
+          if (!tokenizerInput.value && currentMessage.value) {
+            tokenizerInput.value = currentMessage.value.raw_text;
+            runTokenizer();
+          }
+        }
+
+        function openTokenizerWithCurrentMessage() {
+          if (currentMessage.value) {
+            tokenizerInput.value = currentMessage.value.raw_text;
+          }
+          showTokenizerModal.value = true;
+          runTokenizer();
+        }
+
+        function loadCurrentMessageIntoTokenizer() {
+          if (currentMessage.value) {
+            tokenizerInput.value = currentMessage.value.raw_text;
+            runTokenizer();
+          }
+        }
+
+        async function runTokenizer() {
+          if (!tokenizerInput.value.trim()) return;
+          tokenizing.value = true;
+          try {
+            const res = await fetch('/api/v1/tokens/tokenize', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: tokenizerInput.value })
+            });
+            const data = await res.json();
+            tokenizerTokens.value = data.tokens || [];
+            tokenizerEntities.value = data.entities || {};
+            autoGenerateTemplate();
+          } catch (e) {
+            console.error('Error al tokenizar:', e);
+          } finally {
+            tokenizing.value = false;
+          }
+        }
+
+        function getTokenChipClass(tok) {
+          const k = (tok.kind || '').toLowerCase();
+          if (k.includes('symbol')) return 'bg-blue-900/40 text-blue-300 border-blue-600/40';
+          if (k.includes('action')) return 'bg-emerald-900/40 text-emerald-300 border-emerald-600/40';
+          if (k.includes('price') || k.includes('digit') || k.includes('number')) return 'bg-amber-900/40 text-amber-300 border-amber-600/40';
+          if (k.includes('target') || k.includes('profit')) return 'bg-purple-900/40 text-purple-300 border-purple-600/40';
+          if (k.includes('stoploss') || k.includes('sl')) return 'bg-rose-900/40 text-rose-300 border-rose-600/40';
+          if (k.includes('time') || k.includes('period')) return 'bg-cyan-900/40 text-cyan-300 border-cyan-600/40';
+          if (k.includes('zone')) return 'bg-indigo-900/40 text-indigo-300 border-indigo-600/40';
+          return 'bg-gray-800 text-gray-300 border-gray-700';
+        }
+
+        function openTokenTagMenu(tok, idx) {
+          const k = (tok.kind || '').toLowerCase();
+          let tag = '$(dismiss)';
+          if (k.includes('symbol')) tag = '$(symbol)';
+          else if (k.includes('action')) tag = '$(action)';
+          else if (k.includes('profit')) tag = '$(profit_price)';
+          else if (k.includes('stoploss') || k.includes('sl')) tag = '$(stoploss)';
+          else if (k.includes('price')) tag = '$(entry_price)';
+          else if (k.includes('time') && tok.value.includes(':')) tag = '$(entry_time)';
+          else if (k.includes('period') || tok.value.toUpperCase().startsWith('M')) tag = '$(period)';
+
+          tok.value = tag;
+          rebuildGeneratedTemplateFromTokens();
+        }
+
+        function autoGenerateTemplate() {
+          if (!tokenizerInput.value) return;
+          let lines = tokenizerInput.value.split('\n');
+          let tplLines = lines.map(line => {
+            let res = line;
+            // Detect and replace symbols
+            if (tokenizerEntities.value?.symbol) {
+              res = res.replace(new RegExp(escapeRegExp(tokenizerEntities.value.symbol), 'gi'), '$(symbol)');
+            }
+            // Detect and replace actions
+            if (tokenizerEntities.value?.action) {
+              res = res.replace(new RegExp(escapeRegExp(tokenizerEntities.value.action), 'gi'), '$(action)');
+            }
+            // Detect TP patterns
+            res = res.replace(/\bTP\s*\d+[-:\s]+/gi, 'TP$(index) ');
+            res = res.replace(/\bSL[-:\s]+/gi, 'SL ');
+            return res;
+          });
+          generatedTemplatePreview.value = tplLines.join('\n');
+        }
+
+        function rebuildGeneratedTemplateFromTokens() {
+          if (tokenizerTokens.value.length === 0) return;
+          generatedTemplatePreview.value = tokenizerTokens.value.map(t => t.value).join(' ');
+        }
+
+        function transferGeneratedTemplate() {
+          if (generatedTemplatePreview.value) {
+            customTemplateText.value = generatedTemplatePreview.value;
+            showTokenizerModal.value = false;
+            runExactTest();
+          }
+        }
+
+        function escapeRegExp(string) {
+          return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        // --- Formatters for Signal Cards ---
+        function formatSignalSymbol(sym) {
+          if (!sym) return '-';
+          if (sym.symbol_type) {
+            const keys = Object.keys(sym.symbol_type);
+            if (keys.length > 0) return sym.symbol_type[keys[0]];
+          }
+          return typeof sym === 'string' ? sym : '-';
+        }
+
+        function formatSignalEntry(entry) {
+          if (!entry) return '-';
+          if (entry.PriceEntry) return entry.PriceEntry;
+          if (entry.EntryRange) return `${entry.EntryRange[0]} - ${entry.EntryRange[1]}`;
+          if (entry.TimeEntry) return entry.TimeEntry[1] || entry.TimeEntry[0] || 'Time';
+          if (entry.TimePrice) return `${entry.TimePrice[0]} @ ${entry.TimePrice[1]}`;
+          return JSON.stringify(entry);
+        }
+
+        function formatSignalSL(target) {
+          if (!target || !target.ProfitLoss) return '-';
+          return target.ProfitLoss.stoploss > 0 ? target.ProfitLoss.stoploss : '-';
+        }
+
+        function formatSignalTPs(target) {
+          if (!target || !target.ProfitLoss) return '-';
+          if (target.ProfitLoss.profits && target.ProfitLoss.profits.length > 0) {
+            return target.ProfitLoss.profits.join(', ');
+          }
+          return target.ProfitLoss.open ? 'OPEN' : '-';
         }
 
         function onSignalCheckboxChange() {
@@ -965,9 +2402,7 @@
             try {
               const parsed = JSON.parse(validation.ground_truth_json);
               if (Array.isArray(parsed) && parsed.length === 0) {
-                const candidateJson = (parseResult.match_score >= 80 && parseResult.parse_template_json)
-                  ? parseResult.parse_template_json
-                  : parseResult.parse_signal_json;
+                const candidateJson = exactTestResult.signals_json || parseResult.parse_template_json || parseResult.parse_signal_json;
                 if (candidateJson) {
                   const candParsed = JSON.parse(candidateJson);
                   const sigs = candParsed.signals ? candParsed.signals : candParsed;
@@ -1029,7 +2464,6 @@
           saveMessage.value = '';
 
           try {
-            // Ensure gales property is present on all signals before saving
             try {
               const parsedGt = JSON.parse(validation.ground_truth_json);
               validation.ground_truth_json = JSON.stringify(applyDefaultGalesToSignals(parsedGt, false), null, 2);
@@ -1042,9 +2476,9 @@
               is_signal: validation.is_signal,
               signals_count: validation.signals_count,
               ground_truth_json: validation.ground_truth_json,
-              parse_template_json: parseResult.parse_template_json,
+              parse_template_json: exactTestResult.signals_json || parseResult.parse_template_json,
               parse_signal_json: parseResult.parse_signal_json,
-              template_id: parseResult.matched_template_id,
+              template_id: selectedTemplateForEditor.value || parseResult.matched_template_id,
               template_name: validation.template_name || parseResult.matched_template_name,
             };
 
@@ -1056,7 +2490,6 @@
 
             if (!res.ok) throw new Error(await res.text());
 
-            // Update in-memory state
             currentMessage.value.is_validated = true;
             currentMessage.value.is_signal = validation.is_signal;
             currentMessage.value.signals_count = validation.signals_count;
@@ -1067,7 +2500,6 @@
 
             setTimeout(() => { saveMessage.value = ''; }, 2500);
 
-            // Auto-advance if enabled
             if (autoAdvance.value) {
               navMessage(1);
             }
@@ -1186,15 +2618,81 @@
           exportOptions,
           isJsonValid,
           isAllSelected,
+          templateTextarea,
+          customTemplateText,
+          selectedTemplateForEditor,
+          exactTesting,
+          exactTestResult,
+          parsedExactSignals,
+          showMultiSenderModal,
+          selectedSenders,
+          senderSearch,
+          filteredSenders,
+          showBatchModal,
+          batchMode,
+          batchRunning,
+          batchResult,
+          batchResultsFilter,
+          filteredBatchResults,
+          showTokenizerModal,
+          tokenizerInput,
+          tokenizerTokens,
+          tokenizerEntities,
+          tokenizing,
+          generatedTemplatePreview,
+          activeSenderFilter,
+          includeGlobalTemplates,
+          loadingTemplates,
+          allTemplatesCount,
+          showCreateTemplateModal,
+          editingTemplateId,
+          savingTemplate,
+          newTemplateForm,
+          effectiveSenderName,
           onDefaultGalesChange,
-          setQuickGales,
           debounceSearch,
           loadMessages,
+          loadTemplates,
+          setTemplateSenderFilter,
+          clearTemplateSenderFilter,
+          reloadTemplatesForCurrentSender,
+          onSenderFilterChange,
+          createNewTemplateFromEditor,
+          openCreateTemplateModal,
+          openEditTemplateModal,
+          quickUpdateSelectedTemplate,
+          deleteSelectedTemplate,
+          openCreateTemplateModalFromTokenizer,
+          insertTagIntoNewTemplate,
+          submitCreateTemplate,
+          showToast,
           setStatusFilter,
           changePage,
           toggleSelectAll,
+          selectAllSenders,
+          clearSenderSelection,
+          applySenderSelection,
           selectMessage,
           runParse,
+          runExactTest,
+          debounceExactTest,
+          onTemplateSelectChange,
+          insertTokenTag,
+          openBatchWithMode,
+          runBatchExecution,
+          inspectMessageFromBatch,
+          openTokenizerModal,
+          openTokenizerWithCurrentMessage,
+          loadCurrentMessageIntoTokenizer,
+          runTokenizer,
+          getTokenChipClass,
+          openTokenTagMenu,
+          autoGenerateTemplate,
+          transferGeneratedTemplate,
+          formatSignalSymbol,
+          formatSignalEntry,
+          formatSignalSL,
+          formatSignalTPs,
           onSignalCheckboxChange,
           useAsGroundTruth,
           beautifyJson,

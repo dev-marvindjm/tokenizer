@@ -1,6 +1,8 @@
 import json
+import logging
 import sqlite3
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Response, status
@@ -8,6 +10,8 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.services.rust_bridge import rust_bridge
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/validator", tags=["Validator & Ground Truth Studio"])
 
@@ -89,12 +93,36 @@ class StatsResponse(BaseModel):
     total_validated: int
     signals_count: int
     non_signals_count: int
+    telegram_messages: Optional[int] = None
+    telegram_senders: Optional[int] = None
 
 class ParseRequest(BaseModel):
     text: str
     template_id: Optional[int] = None
     pattern_syntax: Optional[str] = None
     template_name: Optional[str] = None
+    end_char_new_line: Optional[bool] = None
+    sender_name: Optional[str] = None
+
+class TemplateCreateRequest(BaseModel):
+    name: Optional[str] = None
+    pattern_syntax: str
+    sender_name: Optional[str] = None
+    template_type: str = "market"
+    description: Optional[str] = None
+    example_text: Optional[str] = None
+    priority: int = 100
+    is_active: bool = True
+
+class TemplateUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    pattern_syntax: Optional[str] = None
+    sender_name: Optional[str] = None
+    template_type: Optional[str] = None
+    description: Optional[str] = None
+    example_text: Optional[str] = None
+    priority: Optional[int] = None
+    is_active: Optional[bool] = None
 
 class ParseResponse(BaseModel):
     parse_template_json: Optional[str] = None
@@ -103,8 +131,62 @@ class ParseResponse(BaseModel):
     parse_signal_us: int = 0
     matched_template_id: Optional[int] = None
     matched_template_name: Optional[str] = None
+    matched_pattern: Optional[str] = None
+    matched_sender_name: Optional[str] = None
     match_score: Optional[float] = None
     detected_signal_count: int = 0
+    exact_match: bool = False
+    exact_signals_count: int = 0
+    exact_signals_json: Optional[str] = None
+    exact_latency_us: int = 0
+    templates_tested_count: int = 0
+
+class TestExactRequest(BaseModel):
+    text: str
+    pattern_syntax: str
+    end_char_new_line: Optional[bool] = None
+
+class TestExactResponse(BaseModel):
+    is_match: bool
+    signals_count: int
+    signals_json: Optional[str] = None
+    latency_us: int = 0
+
+class BatchItemResult(BaseModel):
+    message_id: int
+    sender_name: Optional[str] = None
+    raw_text_preview: str
+    is_match: bool
+    signals_count: int
+    latency_us: int
+    signals_json: Optional[str] = None
+
+class SenderBatchStats(BaseModel):
+    sender_name: str
+    tested: int = 0
+    matched: int = 0
+    failed: int = 0
+    signals_count: int = 0
+
+class TestBatchRequest(BaseModel):
+    pattern_syntax: str
+    mode: str = "at_least_one"  # "at_least_one", "all", "selected"
+    sender_names: Optional[List[str]] = None
+    message_ids: Optional[List[int]] = None
+    end_char_new_line: Optional[bool] = None
+    limit: Optional[int] = 500
+
+class TestBatchResponse(BaseModel):
+    mode: str
+    pattern_syntax: str
+    total_tested: int
+    matched_count: int
+    failed_count: int
+    signals_total_count: int
+    match_rate_pct: float
+    avg_latency_us: float
+    summary_by_sender: Dict[str, SenderBatchStats]
+    results: List[BatchItemResult]
 
 class ValidateRequest(BaseModel):
     message_id: int
@@ -139,6 +221,9 @@ async def get_validator_stats():
     sig_count = cur.execute("SELECT count(*) FROM messages WHERE is_validated = 1 AND is_signal = 1").fetchone()[0]
     non_sig_count = cur.execute("SELECT count(*) FROM messages WHERE is_validated = 1 AND is_signal = 0").fetchone()[0]
 
+    tg_msgs = cur.execute("SELECT count(*) FROM messages WHERE sender_name IS NULL OR LOWER(sender_name) NOT LIKE 'wa%'").fetchone()[0]
+    tg_snds = cur.execute("SELECT count(DISTINCT sender_name) FROM messages WHERE sender_name IS NOT NULL AND LOWER(sender_name) NOT LIKE 'wa%'").fetchone()[0]
+
     conn.close()
     return StatsResponse(
         total_messages=total_msgs,
@@ -147,6 +232,8 @@ async def get_validator_stats():
         total_validated=total_val,
         signals_count=sig_count,
         non_signals_count=non_sig_count,
+        telegram_messages=tg_msgs,
+        telegram_senders=tg_snds,
     )
 
 @router.get("/messages", response_model=MessageListResponse)
@@ -154,11 +241,14 @@ async def get_messages(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     sender_name: Optional[str] = None,
+    sender_names: Optional[List[str]] = Query(default=None),
     status_filter: str = Query(default="all", alias="status"),
     search: Optional[str] = None,
+    include_wa: bool = Query(default=False),
 ):
     """
     Paginated list of messages from consolidated_signals.db with filtering.
+    By default excludes WhatsApp senders (wa*), focusing only on Telegram channels.
     status_filter options: 'all', 'pending', 'validated', 'signal', 'non_signal'
     """
     conn = get_db_connection(row_factory=True)
@@ -167,7 +257,15 @@ async def get_messages(
     conditions = []
     params = []
 
-    if sender_name:
+    # Exclude WhatsApp senders unless explicitly asked
+    if not include_wa:
+        conditions.append("(m.sender_name IS NULL OR LOWER(m.sender_name) NOT LIKE 'wa%')")
+
+    if sender_names and len(sender_names) > 0:
+        placeholders = ",".join("?" for _ in sender_names)
+        conditions.append(f"m.sender_name IN ({placeholders})")
+        params.extend(sender_names)
+    elif sender_name:
         conditions.append("m.sender_name = ?")
         params.append(sender_name)
 
@@ -275,17 +373,44 @@ async def get_message_detail(message_id: int):
     )
 
 @router.get("/templates", response_model=List[TemplateItem])
-async def get_templates():
-    """Returns all available templates for pattern testing."""
+async def get_templates(
+    sender_name: Optional[str] = Query(default=None),
+    include_global: bool = Query(default=False),
+):
+    """
+    Returns available templates for pattern testing.
+    If sender_name is provided:
+      - If include_global is False, returns templates specifically linked to that sender.
+      - If include_global is True, returns sender's templates + unassigned/global templates.
+    """
     conn = get_db_connection(row_factory=True)
     cur = conn.cursor()
 
-    rows = cur.execute("""
-        SELECT id, name, pattern_syntax, template_type, description,
-               example_text, priority, is_active, sender_name
-        FROM templates
-        ORDER BY priority DESC, id ASC
-    """).fetchall()
+    if sender_name and sender_name.strip() and sender_name.strip().lower() != "all":
+        s_clean = sender_name.strip()
+        if include_global:
+            rows = cur.execute("""
+                SELECT id, name, pattern_syntax, template_type, description,
+                       example_text, priority, is_active, sender_name
+                FROM templates
+                WHERE sender_name = ? OR sender_name IS NULL OR sender_name = ''
+                ORDER BY CASE WHEN sender_name = ? THEN 0 ELSE 1 END, priority DESC, id DESC
+            """, (s_clean, s_clean)).fetchall()
+        else:
+            rows = cur.execute("""
+                SELECT id, name, pattern_syntax, template_type, description,
+                       example_text, priority, is_active, sender_name
+                FROM templates
+                WHERE sender_name = ?
+                ORDER BY priority DESC, id DESC
+            """, (s_clean,)).fetchall()
+    else:
+        rows = cur.execute("""
+            SELECT id, name, pattern_syntax, template_type, description,
+                   example_text, priority, is_active, sender_name
+            FROM templates
+            ORDER BY priority DESC, id DESC
+        """).fetchall()
 
     conn.close()
     return [
@@ -303,19 +428,199 @@ async def get_templates():
         for r in rows
     ]
 
-@router.get("/senders", response_model=List[SenderItem])
-async def get_senders():
-    """Returns list of distinct senders/channels ordered by message count."""
+@router.post("/templates", response_model=TemplateItem, status_code=status.HTTP_201_CREATED)
+async def create_template(payload: TemplateCreateRequest):
+    """Creates a new template linked to a sender and saves it to consolidated_signals.db."""
+    clean_pattern = payload.pattern_syntax.strip()
+    if not clean_pattern:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La sintaxis del template (pattern_syntax) no puede estar vacía."
+        )
+
+    clean_name = payload.name.strip() if payload.name and payload.name.strip() else ""
+    clean_sender = payload.sender_name.strip() if payload.sender_name and payload.sender_name.strip() else None
+    if not clean_name:
+        clean_name = f"Template — {clean_sender or 'General'}"
+
     conn = get_db_connection(row_factory=True)
     cur = conn.cursor()
 
-    rows = cur.execute("""
+    cur.execute("""
+        INSERT INTO templates (
+            source_db, original_id, name, pattern_syntax, template_type,
+            description, example_text, priority, is_active, sender_name
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        "consolidated_signals.db",
+        None,
+        clean_name,
+        clean_pattern,
+        payload.template_type or "market",
+        payload.description,
+        payload.example_text,
+        payload.priority,
+        1 if payload.is_active else 0,
+        clean_sender,
+    ))
+    conn.commit()
+    new_id = cur.lastrowid
+
+    row = cur.execute("""
+        SELECT id, name, pattern_syntax, template_type, description,
+               example_text, priority, is_active, sender_name
+        FROM templates WHERE id = ?
+    """, (new_id,)).fetchone()
+    conn.close()
+
+    # Optional mirror into trading_signals_app.db if available
+    try:
+        app_db = settings.DATA_DIR / "trading_signals_app.db"
+        if app_db.exists():
+            now_iso = datetime.now(timezone.utc).isoformat()
+            app_conn = sqlite3.connect(app_db)
+            app_cur = app_conn.cursor()
+            app_cur.execute("""
+                INSERT INTO signal_templates (
+                    name, pattern_syntax, template_type, description,
+                    example_text, priority, is_active, sender_name,
+                    is_system, win_rate, latency_us, signals_count, quality_score,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 80.0, 30, 0, 85, ?, ?)
+            """, (
+                clean_name,
+                clean_pattern,
+                payload.template_type or "market",
+                payload.description,
+                payload.example_text,
+                payload.priority,
+                1 if payload.is_active else 0,
+                clean_sender,
+                now_iso,
+                now_iso,
+            ))
+            app_conn.commit()
+            app_conn.close()
+    except Exception as e:
+        logger.warning(f"Could not mirror template into trading_signals_app.db: {e}")
+
+    return TemplateItem(
+        id=row["id"],
+        name=row["name"],
+        pattern_syntax=row["pattern_syntax"],
+        template_type=row["template_type"],
+        description=row["description"],
+        example_text=row["example_text"],
+        priority=row["priority"],
+        is_active=bool(row["is_active"]),
+        sender_name=row["sender_name"],
+    )
+
+@router.put("/templates/{template_id}", response_model=TemplateItem)
+async def update_template(template_id: int, payload: TemplateUpdateRequest):
+    """Updates an existing template by ID in consolidated_signals.db."""
+    conn = get_db_connection(row_factory=True)
+    cur = conn.cursor()
+
+    existing = cur.execute("""
+        SELECT id, name, pattern_syntax, template_type, description,
+               example_text, priority, is_active, sender_name
+        FROM templates WHERE id = ?
+    """, (template_id,)).fetchone()
+    if not existing:
+        conn.close()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template no encontrado")
+
+    new_pattern = payload.pattern_syntax.strip() if payload.pattern_syntax is not None else existing["pattern_syntax"]
+    if not new_pattern:
+        conn.close()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La sintaxis del template (pattern_syntax) no puede estar vacía."
+        )
+
+    new_name = payload.name.strip() if payload.name is not None and payload.name.strip() else existing["name"]
+    new_sender = (payload.sender_name.strip() if payload.sender_name.strip() else None) if payload.sender_name is not None else existing["sender_name"]
+    new_type = payload.template_type if payload.template_type is not None else existing["template_type"]
+    new_desc = payload.description if payload.description is not None else existing["description"]
+    new_example = payload.example_text if payload.example_text is not None else existing["example_text"]
+    new_prio = payload.priority if payload.priority is not None else existing["priority"]
+    new_active = (1 if payload.is_active else 0) if payload.is_active is not None else existing["is_active"]
+
+    cur.execute("""
+        UPDATE templates
+        SET name = ?,
+            pattern_syntax = ?,
+            sender_name = ?,
+            template_type = ?,
+            description = ?,
+            example_text = ?,
+            priority = ?,
+            is_active = ?
+        WHERE id = ?
+    """, (
+        new_name,
+        new_pattern,
+        new_sender,
+        new_type,
+        new_desc,
+        new_example,
+        new_prio,
+        new_active,
+        template_id,
+    ))
+    conn.commit()
+
+    row = cur.execute("""
+        SELECT id, name, pattern_syntax, template_type, description,
+               example_text, priority, is_active, sender_name
+        FROM templates WHERE id = ?
+    """, (template_id,)).fetchone()
+    conn.close()
+
+    return TemplateItem(
+        id=row["id"],
+        name=row["name"],
+        pattern_syntax=row["pattern_syntax"],
+        template_type=row["template_type"],
+        description=row["description"],
+        example_text=row["example_text"],
+        priority=row["priority"],
+        is_active=bool(row["is_active"]),
+        sender_name=row["sender_name"],
+    )
+
+@router.delete("/templates/{template_id}")
+async def delete_template(template_id: int):
+    """Deletes a template by ID from consolidated_signals.db."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM templates WHERE id = ?", (template_id,))
+    deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    if deleted == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template no encontrado")
+    return {"status": "success", "deleted_id": template_id}
+
+@router.get("/senders", response_model=List[SenderItem])
+async def get_senders(include_wa: bool = Query(default=False)):
+    """
+    Returns list of distinct Telegram senders/channels ordered by message count.
+    WhatsApp senders (wa*) are omitted by default.
+    """
+    conn = get_db_connection(row_factory=True)
+    cur = conn.cursor()
+
+    condition = "" if include_wa else "AND LOWER(sender_name) NOT LIKE 'wa%'"
+    query = f"""
         SELECT sender_name, channel_handle, count(*) as count
         FROM messages
-        WHERE sender_name IS NOT NULL AND sender_name != ''
+        WHERE sender_name IS NOT NULL AND sender_name != '' {condition}
         GROUP BY sender_name
         ORDER BY count DESC
-    """).fetchall()
+    """
+    rows = cur.execute(query).fetchall()
 
     conn.close()
     return [
@@ -332,7 +637,9 @@ async def get_senders():
 async def parse_message_endpoint(req: ParseRequest):
     """
     Executes both parse_signal and parse_template on the given text.
-    If no template is specified, automatically searches active templates for best match.
+    If no template is specified, automatically iterates over ALL templates in the database
+    (including newly created templates, prioritizing templates for req.sender_name first)
+    to verify if any template matches via strict 100% parse_template_exact (with fallback to scored match).
     """
     text = req.text.strip()
     if not text:
@@ -346,79 +653,174 @@ async def parse_message_endpoint(req: ParseRequest):
     if sig_json:
         try:
             parsed_obj = json.loads(sig_json)
-            signals_arr = parsed_obj.get("signals", [])
-            det_count = len(signals_arr)
+            if isinstance(parsed_obj, list):
+                det_count = len(parsed_obj)
+            elif isinstance(parsed_obj, dict):
+                signals_arr = parsed_obj.get("signals", [])
+                det_count = len(signals_arr)
         except Exception:
             det_count = 0
 
-    # 2. Execute parse_template_json
+    # 2. Execute parse_template_exact and parse_template_json
     tpl_json = None
     tpl_us = 0
     matched_id = req.template_id
     matched_name = req.template_name
+    matched_sender_name = None
     match_score = None
+    resolved_pattern = req.pattern_syntax
+    exact_json = None
+    exact_count = 0
+    exact_us = 0
+    templates_tested_count = 0
 
     conn = get_db_connection(row_factory=True)
     cur = conn.cursor()
 
     if req.pattern_syntax:
         # Pattern provided directly
+        templates_tested_count = 1
         tpl_json, tpl_us = await rust_bridge.parse_template_async(
             text, req.pattern_syntax, req.template_name
         )
+        exact_json, exact_count, exact_us = await rust_bridge.parse_template_exact_async(
+            text, req.pattern_syntax, req.end_char_new_line
+        )
     elif req.template_id:
         # Template specified by ID
-        row = cur.execute("SELECT name, pattern_syntax FROM templates WHERE id = ?", (req.template_id,)).fetchone()
+        row = cur.execute(
+            "SELECT id, name, pattern_syntax, sender_name FROM templates WHERE id = ?",
+            (req.template_id,)
+        ).fetchone()
+        conn.close()
         if row:
+            templates_tested_count = 1
             matched_name = row["name"]
+            matched_sender_name = row["sender_name"]
+            resolved_pattern = row["pattern_syntax"]
             tpl_json, tpl_us = await rust_bridge.parse_template_async(
                 text, row["pattern_syntax"], matched_name
             )
-    else:
-        # Auto-match: test against active templates to find best score
-        active_tpls = cur.execute(
-            "SELECT id, name, pattern_syntax FROM templates WHERE is_active = 1 ORDER BY priority DESC LIMIT 50"
-        ).fetchall()
-
-        best_score = -1.0
-        best_json = None
-        best_id = None
-        best_name = None
-        best_time = 0
-
-        for tpl in active_tpls:
-            res_str, d_us = await rust_bridge.parse_template_async(
-                text, tpl["pattern_syntax"], tpl["name"]
+            exact_json, exact_count, exact_us = await rust_bridge.parse_template_exact_async(
+                text, row["pattern_syntax"], req.end_char_new_line
             )
-            if res_str:
-                try:
-                    obj = json.loads(res_str)
-                    sc = float(obj.get("match_score", 0.0))
-                    if sc > best_score:
-                        best_score = sc
-                        best_json = res_str
-                        best_id = tpl["id"]
-                        best_name = tpl["name"]
-                        best_time = d_us
-                        if best_score >= 100.0:
-                            break
-                except Exception:
-                    pass
+    else:
+        # Auto-match: iterate through ALL templates in the database (including newly created templates)
+        if req.sender_name and req.sender_name.strip():
+            s_clean = req.sender_name.strip()
+            all_tpls = cur.execute(
+                """SELECT id, name, pattern_syntax, sender_name FROM templates 
+                   ORDER BY CASE 
+                       WHEN sender_name = ? THEN 0 
+                       WHEN sender_name IS NULL OR sender_name = '' THEN 1 
+                       ELSE 2 
+                   END, is_active DESC, priority DESC, id DESC""",
+                (s_clean,)
+            ).fetchall()
+        else:
+            all_tpls = cur.execute(
+                "SELECT id, name, pattern_syntax, sender_name FROM templates ORDER BY is_active DESC, priority DESC, id DESC"
+            ).fetchall()
+        conn.close()
 
-        if best_json is not None:
-            tpl_json = best_json
-            tpl_us = best_time
-            matched_id = best_id
-            matched_name = best_name
-            match_score = best_score
+        templates_tested_count = len(all_tpls)
+        tpl_dicts = [dict(r) for r in all_tpls]
 
-    conn.close()
+        def _iterate_all_templates() -> Dict[str, Any]:
+            total_exact_time = 0
+            # Pass 1: Strict 100% parse_template verification across all templates
+            for tpl in tpl_dicts:
+                pat = (tpl["pattern_syntax"] or "").strip()
+                if not pat:
+                    continue
+                e_json, e_cnt, e_us = rust_bridge.parse_template_exact_sync(
+                    text, pat, req.end_char_new_line
+                )
+                total_exact_time += e_us
+                if e_json is not None and e_cnt > 0:
+                    return {
+                        "exact_match": True,
+                        "exact_json": e_json,
+                        "exact_count": e_cnt,
+                        "exact_us": e_us,
+                        "tpl_json": e_json,
+                        "tpl_us": total_exact_time,
+                        "matched_id": tpl["id"],
+                        "matched_name": tpl["name"],
+                        "matched_pattern": tpl["pattern_syntax"],
+                        "matched_sender_name": tpl["sender_name"],
+                        "match_score": 100.0,
+                    }
+
+            # Pass 2: Fallback scored match if no strict 100% match was found
+            best_score = -1.0
+            best_json = None
+            best_id = None
+            best_name = None
+            best_pat = None
+            best_sender = None
+            best_time = 0
+
+            for tpl in tpl_dicts:
+                pat = (tpl["pattern_syntax"] or "").strip()
+                if not pat:
+                    continue
+                res_str, d_us = rust_bridge.parse_template_sync(text, pat, tpl["name"])
+                if res_str:
+                    try:
+                        obj = json.loads(res_str)
+                        sc = float(obj.get("match_score", 0.0))
+                        if sc > best_score:
+                            best_score = sc
+                            best_json = res_str
+                            best_id = tpl["id"]
+                            best_name = tpl["name"]
+                            best_pat = tpl["pattern_syntax"]
+                            best_sender = tpl["sender_name"]
+                            best_time = d_us
+                            if best_score >= 100.0:
+                                break
+                    except Exception:
+                        pass
+
+            return {
+                "exact_match": False,
+                "exact_json": None,
+                "exact_count": 0,
+                "exact_us": total_exact_time,
+                "tpl_json": best_json,
+                "tpl_us": best_time or total_exact_time,
+                "matched_id": best_id,
+                "matched_name": best_name,
+                "matched_pattern": best_pat,
+                "matched_sender_name": best_sender,
+                "match_score": best_score if best_json is not None else None,
+            }
+
+        import asyncio
+        iter_res = await asyncio.to_thread(_iterate_all_templates)
+        exact_json = iter_res["exact_json"]
+        exact_count = iter_res["exact_count"]
+        exact_us = iter_res["exact_us"]
+        tpl_json = iter_res["tpl_json"]
+        tpl_us = iter_res["tpl_us"]
+        matched_id = iter_res["matched_id"]
+        matched_name = iter_res["matched_name"]
+        resolved_pattern = iter_res["matched_pattern"]
+        matched_sender_name = iter_res["matched_sender_name"]
+        match_score = iter_res["match_score"]
+
+    if req.pattern_syntax:
+        conn.close()
 
     # Extract score if tpl_json present and match_score not already extracted
     if tpl_json and match_score is None:
         try:
             obj = json.loads(tpl_json)
-            match_score = float(obj.get("match_score", 0.0))
+            if "match_score" in obj:
+                match_score = float(obj.get("match_score", 0.0))
+            elif obj.get("is_match"):
+                match_score = 100.0
         except Exception:
             pass
 
@@ -429,8 +831,178 @@ async def parse_message_endpoint(req: ParseRequest):
         parse_signal_us=sig_us,
         matched_template_id=matched_id,
         matched_template_name=matched_name,
+        matched_pattern=resolved_pattern,
+        matched_sender_name=matched_sender_name,
         match_score=match_score,
         detected_signal_count=det_count,
+        exact_match=(exact_json is not None),
+        exact_signals_count=exact_count,
+        exact_signals_json=exact_json,
+        exact_latency_us=exact_us,
+        templates_tested_count=templates_tested_count,
+    )
+
+@router.post("/test-exact", response_model=TestExactResponse)
+async def test_template_exact_endpoint(req: TestExactRequest):
+    """
+    Directly tests the strict parse_template function against text and editable pattern syntax.
+    Returns whether it matched (is_match), the count of extracted signals, the full JSON and latency.
+    """
+    text = req.text.strip()
+    pattern = req.pattern_syntax.strip()
+    if not text or not pattern:
+        return TestExactResponse(is_match=False, signals_count=0, signals_json=None, latency_us=0)
+
+    json_str, count, us = await rust_bridge.parse_template_exact_async(
+        text, pattern, req.end_char_new_line
+    )
+    return TestExactResponse(
+        is_match=(json_str is not None),
+        signals_count=count,
+        signals_json=json_str,
+        latency_us=us,
+    )
+
+@router.post("/test-batch", response_model=TestBatchResponse)
+async def test_template_batch_endpoint(req: TestBatchRequest):
+    """
+    Executes parse_template globally across multiple Telegram senders.
+    Modes:
+      - 'at_least_one': 1 message per selected/all Telegram channel.
+      - 'all': All messages across selected/all Telegram channels (up to limit).
+      - 'selected': Only the specifically checked message IDs.
+    """
+    pattern = req.pattern_syntax.strip()
+    if not pattern:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="pattern_syntax cannot be empty.",
+        )
+
+    conn = get_db_connection(row_factory=True)
+    cur = conn.cursor()
+
+    target_msgs: List[sqlite3.Row] = []
+
+    if req.mode == "selected":
+        if req.message_ids and len(req.message_ids) > 0:
+            placeholders = ",".join("?" for _ in req.message_ids)
+            query = f"""
+                SELECT id, sender_name, raw_text
+                FROM messages
+                WHERE id IN ({placeholders})
+                ORDER BY id ASC
+            """
+            target_msgs = cur.execute(query, req.message_ids).fetchall()
+    elif req.mode == "at_least_one":
+        # Target channels: specific selected senders or all Telegram senders
+        if req.sender_names and len(req.sender_names) > 0:
+            senders_list = req.sender_names
+        else:
+            s_rows = cur.execute("""
+                SELECT sender_name
+                FROM messages
+                WHERE sender_name IS NOT NULL AND sender_name != '' AND LOWER(sender_name) NOT LIKE 'wa%'
+                GROUP BY sender_name
+                ORDER BY count(*) DESC
+            """).fetchall()
+            senders_list = [r["sender_name"] for r in s_rows]
+
+        for s_name in senders_list:
+            row = cur.execute("""
+                SELECT id, sender_name, raw_text
+                FROM messages
+                WHERE sender_name = ?
+                ORDER BY id DESC
+                LIMIT 1
+            """, (s_name,)).fetchone()
+            if row:
+                target_msgs.append(row)
+    elif req.mode == "all":
+        limit = req.limit or 500
+        if req.sender_names and len(req.sender_names) > 0:
+            placeholders = ",".join("?" for _ in req.sender_names)
+            query = f"""
+                SELECT id, sender_name, raw_text
+                FROM messages
+                WHERE sender_name IN ({placeholders})
+                ORDER BY id ASC
+                LIMIT ?
+            """
+            target_msgs = cur.execute(query, req.sender_names + [limit]).fetchall()
+        else:
+            query = """
+                SELECT id, sender_name, raw_text
+                FROM messages
+                WHERE sender_name IS NOT NULL AND LOWER(sender_name) NOT LIKE 'wa%'
+                ORDER BY id ASC
+                LIMIT ?
+            """
+            target_msgs = cur.execute(query, (limit,)).fetchall()
+
+    conn.close()
+
+    total_tested = len(target_msgs)
+    matched_count = 0
+    failed_count = 0
+    signals_total_count = 0
+    total_latency_us = 0
+    summary_by_sender: Dict[str, SenderBatchStats] = {}
+    results: List[BatchItemResult] = []
+
+    for row in target_msgs:
+        mid = row["id"]
+        s_name = row["sender_name"] or "Desconocido"
+        raw_text = row["raw_text"]
+
+        if s_name not in summary_by_sender:
+            summary_by_sender[s_name] = SenderBatchStats(sender_name=s_name)
+        stats_obj = summary_by_sender[s_name]
+        stats_obj.tested += 1
+
+        json_str, sig_count, d_us = await rust_bridge.parse_template_exact_async(
+            raw_text, pattern, req.end_char_new_line
+        )
+        total_latency_us += d_us
+        is_match = (json_str is not None)
+
+        if is_match:
+            matched_count += 1
+            signals_total_count += sig_count
+            stats_obj.matched += 1
+            stats_obj.signals_count += sig_count
+        else:
+            failed_count += 1
+            stats_obj.failed += 1
+
+        preview = raw_text.strip().replace("\n", " ")
+        if len(preview) > 100:
+            preview = preview[:100] + "..."
+
+        results.append(BatchItemResult(
+            message_id=mid,
+            sender_name=s_name,
+            raw_text_preview=preview,
+            is_match=is_match,
+            signals_count=sig_count,
+            latency_us=d_us,
+            signals_json=json_str,
+        ))
+
+    rate_pct = round((matched_count / total_tested * 100.0), 2) if total_tested > 0 else 0.0
+    avg_us = round(total_latency_us / total_tested, 1) if total_tested > 0 else 0.0
+
+    return TestBatchResponse(
+        mode=req.mode,
+        pattern_syntax=pattern,
+        total_tested=total_tested,
+        matched_count=matched_count,
+        failed_count=failed_count,
+        signals_total_count=signals_total_count,
+        match_rate_pct=rate_pct,
+        avg_latency_us=avg_us,
+        summary_by_sender=summary_by_sender,
+        results=results,
     )
 
 @router.post("/validate")
