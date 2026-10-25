@@ -154,6 +154,13 @@ async def test_validator_ui_route():
         assert res.status_code == 200
         assert "Trading Signals Ground Truth Studio" in res.text
         assert "vue.global" in res.text
+        assert 'list="token-tags-datalist"' in res.text
+        assert 'v-model="syncScroll"' in res.text
+        assert '@scroll="onTemplateScroll"' in res.text
+        assert '@scroll="onRawTextScroll"' in res.text
+        assert 'headerMatchStatus' in res.text
+        assert 'showSignalsSummary' in res.text
+        assert 'Resumen Estadístico de las Señales' in res.text
 
 @pytest.mark.asyncio
 async def test_templates_filter_by_sender_and_crud(tmp_path, monkeypatch):
@@ -286,4 +293,6 @@ async def test_parse_iterates_all_templates_and_includes_newly_created(tmp_path,
         assert after_data["matched_template_id"] == created_tpl["id"]
         assert after_data["matched_template_name"] == "Plantilla Super VIP"
         assert after_data["matched_pattern"] == new_tpl["pattern_syntax"]
+
+
 

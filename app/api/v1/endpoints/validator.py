@@ -160,6 +160,8 @@ class BatchItemResult(BaseModel):
     signals_count: int
     latency_us: int
     signals_json: Optional[str] = None
+    matched_template_id: Optional[int] = None
+    matched_template_name: Optional[str] = None
 
 class SenderBatchStats(BaseModel):
     sender_name: str
@@ -169,12 +171,13 @@ class SenderBatchStats(BaseModel):
     signals_count: int = 0
 
 class TestBatchRequest(BaseModel):
-    pattern_syntax: str
+    pattern_syntax: Optional[str] = ""
     mode: str = "at_least_one"  # "at_least_one", "all", "selected"
     sender_names: Optional[List[str]] = None
     message_ids: Optional[List[int]] = None
     end_char_new_line: Optional[bool] = None
     limit: Optional[int] = 500
+    iterate_channel_templates: bool = True
 
 class TestBatchResponse(BaseModel):
     mode: str
@@ -292,7 +295,8 @@ async def get_messages(
     query_sql = f"""
         SELECT m.id, m.source_db, m.original_id, m.sender_id, m.sender_name,
                m.channel_handle, m.external_message_id, m.raw_text, m.published_at,
-               m.captured_at, m.processed_status, m.is_validated, m.is_signal,
+               m.captured_at, m.processed_status, m.is_validated,
+               COALESCE(v.is_signal, m.is_signal) AS is_signal,
                v.signals_count, v.ground_truth_json
         FROM messages m
         LEFT JOIN validated_test_cases v ON m.id = v.message_id
@@ -343,7 +347,8 @@ async def get_message_detail(message_id: int):
     row = cur.execute("""
         SELECT m.id, m.source_db, m.original_id, m.sender_id, m.sender_name,
                m.channel_handle, m.external_message_id, m.raw_text, m.published_at,
-               m.captured_at, m.processed_status, m.is_validated, m.is_signal,
+               m.captured_at, m.processed_status, m.is_validated,
+               COALESCE(v.is_signal, m.is_signal) AS is_signal,
                v.signals_count, v.ground_truth_json
         FROM messages m
         LEFT JOIN validated_test_cases v ON m.id = v.message_id
@@ -867,20 +872,30 @@ async def test_template_exact_endpoint(req: TestExactRequest):
 async def test_template_batch_endpoint(req: TestBatchRequest):
     """
     Executes parse_template globally across multiple Telegram senders.
+    Iterates through all templates registered for each message's channel (plus global/custom templates)
+    so that channels with multiple templates are accurately verified.
     Modes:
       - 'at_least_one': 1 message per selected/all Telegram channel.
       - 'all': All messages across selected/all Telegram channels (up to limit).
       - 'selected': Only the specifically checked message IDs.
     """
-    pattern = req.pattern_syntax.strip()
-    if not pattern:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="pattern_syntax cannot be empty.",
-        )
+    pattern = (req.pattern_syntax or "").strip()
 
     conn = get_db_connection(row_factory=True)
     cur = conn.cursor()
+
+    # Load all templates ordered by active status, priority, and ID
+    all_tpl_rows = cur.execute(
+        "SELECT id, name, pattern_syntax, sender_name FROM templates ORDER BY is_active DESC, priority DESC, id DESC"
+    ).fetchall()
+    all_templates = [dict(r) for r in all_tpl_rows]
+
+    if not pattern and not all_templates:
+        conn.close()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No hay templates disponibles para evaluar.",
+        )
 
     target_msgs: List[sqlite3.Row] = []
 
@@ -942,6 +957,19 @@ async def test_template_batch_endpoint(req: TestBatchRequest):
 
     conn.close()
 
+    # Pre-group templates by sender_name for fast channel-first iteration
+    templates_by_sender: Dict[str, List[Dict[str, Any]]] = {}
+    global_templates: List[Dict[str, Any]] = []
+    for tpl in all_templates:
+        pat_str = (tpl.get("pattern_syntax") or "").strip()
+        if not pat_str:
+            continue
+        s_key = (tpl.get("sender_name") or "").strip()
+        if s_key:
+            templates_by_sender.setdefault(s_key, []).append(tpl)
+        else:
+            global_templates.append(tpl)
+
     total_tested = len(target_msgs)
     matched_count = 0
     failed_count = 0
@@ -960,10 +988,60 @@ async def test_template_batch_endpoint(req: TestBatchRequest):
         stats_obj = summary_by_sender[s_name]
         stats_obj.tested += 1
 
-        json_str, sig_count, d_us = await rust_bridge.parse_template_exact_async(
-            raw_text, pattern, req.end_char_new_line
-        )
-        total_latency_us += d_us
+        # Build ordered candidate list for this message's channel:
+        # 1. All templates registered for this channel (s_name)
+        # 2. The active editor pattern_syntax (if provided and not already tested)
+        # 3. Global templates and remaining templates
+        candidates: List[Dict[str, Any]] = []
+        seen_patterns = set()
+
+        if req.iterate_channel_templates:
+            for tpl in templates_by_sender.get(s_name, []):
+                p = (tpl["pattern_syntax"] or "").strip()
+                if p and p not in seen_patterns:
+                    seen_patterns.add(p)
+                    candidates.append(tpl)
+
+        if pattern and pattern not in seen_patterns:
+            seen_patterns.add(pattern)
+            candidates.append({
+                "id": None,
+                "name": "Template Editor",
+                "pattern_syntax": pattern,
+                "sender_name": s_name,
+            })
+
+        if req.iterate_channel_templates:
+            for tpl in global_templates:
+                p = (tpl["pattern_syntax"] or "").strip()
+                if p and p not in seen_patterns:
+                    seen_patterns.add(p)
+                    candidates.append(tpl)
+            for tpl in all_templates:
+                p = (tpl["pattern_syntax"] or "").strip()
+                if p and p not in seen_patterns:
+                    seen_patterns.add(p)
+                    candidates.append(tpl)
+
+        json_str = None
+        sig_count = 0
+        msg_latency_us = 0
+        matched_tpl_id = None
+        matched_tpl_name = None
+
+        for cand in candidates:
+            c_json, c_cnt, c_us = rust_bridge.parse_template_exact_sync(
+                raw_text, cand["pattern_syntax"], req.end_char_new_line
+            )
+            msg_latency_us += c_us
+            if c_json is not None and c_cnt > 0:
+                json_str = c_json
+                sig_count = c_cnt
+                matched_tpl_id = cand["id"]
+                matched_tpl_name = cand["name"]
+                break
+
+        total_latency_us += msg_latency_us
         is_match = (json_str is not None)
 
         if is_match:
@@ -985,8 +1063,10 @@ async def test_template_batch_endpoint(req: TestBatchRequest):
             raw_text_preview=preview,
             is_match=is_match,
             signals_count=sig_count,
-            latency_us=d_us,
+            latency_us=msg_latency_us,
             signals_json=json_str,
+            matched_template_id=matched_tpl_id,
+            matched_template_name=matched_tpl_name,
         ))
 
     rate_pct = round((matched_count / total_tested * 100.0), 2) if total_tested > 0 else 0.0
@@ -994,7 +1074,7 @@ async def test_template_batch_endpoint(req: TestBatchRequest):
 
     return TestBatchResponse(
         mode=req.mode,
-        pattern_syntax=pattern,
+        pattern_syntax=pattern or "Templates del canal",
         total_tested=total_tested,
         matched_count=matched_count,
         failed_count=failed_count,

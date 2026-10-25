@@ -1855,20 +1855,117 @@ fn apply_template_label(
         "index" => {
             orig_val.is_empty() || orig_val.chars().all(|c| c.is_ascii_digit() || c == '.' || c.is_whitespace())
         }
-        "indicator" | "date" | "custom" | "dismiss" | "variable" | "_" | _ => !orig_val.is_empty(),
+        "_" => !orig_val.contains(char::is_whitespace),
+        "_line" | "_lines" => true,
+        "indicator" | "date" | "custom" | "dismiss" | "variable" | _ => !orig_val.is_empty(),
     }
 }
 
-fn match_and_extract_line(
+fn is_ignored_label(lbl: &str) -> bool {
+    matches!(lbl, "_" | "_line" | "_lines")
+}
+
+fn strip_tag_with_delimiters(tpl_line: &str, tag: &str) -> String {
+    let mut s = tpl_line.to_string();
+    if !s.contains(tag) {
+        return s;
+    }
+    s = remove_ci_substring(&s, &format!("({})", tag));
+    s = remove_ci_substring(&s, &format!("[{}]", tag));
+    s = remove_ci_substring(&s, &format!("- {}", tag));
+    s = remove_ci_substring(&s, &format!("-{}", tag));
+    s = remove_ci_substring(&s, &format!("/ {}", tag));
+    s = remove_ci_substring(&s, &format!("/{}", tag));
+    s = remove_ci_substring(&s, &format!("| {}", tag));
+    s = remove_ci_substring(&s, &format!("|{}", tag));
+    s = remove_ci_substring(&s, &format!("_{}", tag));
+    s = remove_ci_substring(&s, tag);
+    collapse_spaces(s.trim())
+}
+
+fn strip_optional_underscore(tpl_line: &str) -> String {
+    strip_tag_with_delimiters(tpl_line, "$(_)")
+}
+
+fn strip_all_optional_tags(tpl_line: &str) -> String {
+    let s = strip_tag_with_delimiters(tpl_line, "$(_lines)");
+    let s = strip_tag_with_delimiters(&s, "$(_line)");
+    strip_tag_with_delimiters(&s, "$(_)")
+}
+
+/// Elimina del template exactamente `n` etiquetas `$(_)` (las de más a la derecha),
+/// junto con sus delimitadores, como si nunca hubieran existido. Las demás se conservan.
+fn strip_optional_underscore_n(tpl_line: &str, n: usize) -> String {
+    const MARK: &str = "\u{1}";
+    let total = tpl_line.matches("$(_)").count();
+    if n >= total {
+        return strip_optional_underscore(tpl_line);
+    }
+    // Protege las primeras (total - n) apariciones con un marcador temporal
+    let keep = total - n;
+    let mut protected = String::new();
+    let mut rest = tpl_line;
+    for _ in 0..keep {
+        if let Some(p) = rest.find("$(_)") {
+            protected.push_str(&rest[..p]);
+            protected.push_str(MARK);
+            rest = &rest[p + 4..];
+        }
+    }
+    protected.push_str(rest);
+    let stripped = strip_optional_underscore(&protected);
+    collapse_spaces(stripped.replace(MARK, "$(_)").trim())
+}
+
+fn is_optional_template_line(tpl_line: &str) -> bool {
+    let t = tpl_line.trim();
+    if !t.contains("$(_)") && !t.contains("$(_line)") && !t.contains("$(_lines)") {
+        return false;
+    }
+    let req = TemplateRequirements::from_pattern(t);
+    !req.has_symbol && !req.has_action && !req.has_entry && !req.has_stoploss && !req.has_profit && !req.has_period && !req.has_time
+}
+
+fn is_multiline_optional_template_line(tpl_line: &str) -> bool {
+    tpl_line.contains("$(_lines)") && is_optional_template_line(tpl_line)
+}
+
+fn is_pure_wildcard_line(tpl_line: &str) -> bool {
+    strip_all_optional_tags(tpl_line).is_empty()
+}
+
+/// Compara una línea original contra una línea de template y extrae los valores
+/// de las etiquetas `$(etiqueta)` hacia `signals` / `current_signal`.
+///
+/// # Parámetros
+/// - `orig_line`: línea del mensaje original.
+/// - `tpl_line`: línea del template (literales + etiquetas `$(...)`).
+/// - `end_char_new_line`: indica si la línea termina en salto de línea; con `Some(false)`
+///   la etiqueta `$(symbol)` final solo captura hasta el primer espacio.
+/// - `signals`: lista de señales acumuladas, modificada por `apply_template_label`.
+/// - `current_signal`: señal en construcción, modificada por `apply_template_label`.
+///
+/// # Retorno
+/// - `Some((total_items, matched_items))`: ítems evaluados (literales y etiquetas, sin contar
+///   `$(_)`) y cuántos coincidieron.
+/// - `None`: la línea no coincide con el template.
+///
+/// # Funcionamiento
+/// El template se divide en segmentos (literales y etiquetas). Los literales deben aparecer
+/// al inicio de la posición actual; las etiquetas capturan el texto hasta el siguiente literal
+/// (o hasta el final de la línea). Al terminar no debe quedar texto sin consumir.
+fn match_and_extract_line_core(
     orig_line: &str,
     tpl_line: &str,
     end_char_new_line: Option<bool>,
     signals: &mut Vec<Signal>,
     current_signal: &mut Signal,
 ) -> Option<(usize, usize)> {
+    // Normaliza espacios de la línea original y preprocesa el template
     let o_clean = collapse_spaces(orig_line.trim());
     let t_clean = preprocess_template_line(tpl_line, orig_line);
 
+    // Template vacío: solo coincide con una línea vacía; línea vacía con template no vacío no coincide
     if t_clean.is_empty() {
         return if o_clean.is_empty() { Some((0, 0)) } else { None };
     }
@@ -1878,9 +1975,11 @@ fn match_and_extract_line(
 
     // Si la línea del template no tiene ninguna etiqueta $(etiqueta)
     if !t_clean.contains("$(") {
+        // Comparación literal sin distinguir mayúsculas/minúsculas
         if o_clean.eq_ignore_ascii_case(&t_clean) || o_clean.to_lowercase() == t_clean.to_lowercase() {
             return Some((1, 1));
         }
+        // Líneas indicadoras (p. ej. encabezados) con coincidencia flexible
         if is_indicator_line_match(&o_clean, &t_clean) {
             return Some((1, 1));
         }
@@ -1888,15 +1987,16 @@ fn match_and_extract_line(
     }
 
     let segments = parse_template_segments(&t_clean);
-    let mut pos = 0usize;
-    let mut total_items = 0usize;
-    let mut matched_items = 0usize;
-    let mut same_line_entry_count = 0usize;
-    let mut idx = 0usize;
+    let mut pos = 0usize; // posición actual (bytes) en o_clean
+    let mut total_items = 0usize; // ítems evaluados
+    let mut matched_items = 0usize; // ítems que coincidieron
+    let mut same_line_entry_count = 0usize; // contador de entradas en la misma línea
+    let mut idx = 0usize; // índice del segmento actual
 
     while idx < segments.len() {
         match &segments[idx] {
             TemplateSegment::Literal(lit) => {
+                // Un literal debe aparecer exactamente en la posición actual
                 total_items += 1;
                 if let Some((m_start, m_end)) = find_literal_ci(&o_clean[pos..], lit, true) {
                     if m_start == 0 {
@@ -1921,7 +2021,9 @@ fn match_and_extract_line(
                 // Buscar el siguiente literal estático que delimita a este grupo de tags
                 let (captured, next_pos, lit_matched) = if idx < segments.len() {
                     if let TemplateSegment::Literal(next_lit) = &segments[idx] {
-                        // Caso especial: si el único tag es $(index) y next_lit empieza después de dígitos opcionales
+                        // Caso especial: si el único tag es $(index) y next_lit empieza después de dígitos opcionales.
+                        // Se intenta capturar espacios + dígitos antes del literal; si no se puede,
+                        // el índice queda vacío y el literal debe estar justo en la posición actual.
                         if tag_slice.len() == 1 {
                             if let TemplateSegment::Tag(lbl) = &tag_slice[0] {
                                 if lbl == "index" {
@@ -1961,6 +2063,7 @@ fn match_and_extract_line(
                                         return None;
                                     }
                                 } else if let Some((m_start, m_end)) = find_literal_ci(&o_clean[pos..], next_lit, false) {
+                                    // Otra etiqueta: captura todo hasta el siguiente literal
                                     idx += 1;
                                     (&o_clean[pos..pos + m_start], pos + m_end, true)
                                 } else {
@@ -1979,7 +2082,8 @@ fn match_and_extract_line(
                         unreachable!()
                     }
                 } else {
-                    // Fin de la línea
+                    // Fin de la línea: la etiqueta captura el resto del texto.
+                    // Si la línea no termina en salto y la etiqueta es $(symbol), solo toma el primer token.
                     let rem = &o_clean[pos..];
                     if end_char_new_line == Some(false) && tag_slice.len() == 1 {
                         if let TemplateSegment::Tag(lbl) = &tag_slice[0] {
@@ -1997,6 +2101,7 @@ fn match_and_extract_line(
                     }
                 };
 
+                // El literal delimitador también cuenta como ítem coincidente
                 if lit_matched {
                     total_items += 1;
                     matched_items += 1;
@@ -2004,16 +2109,27 @@ fn match_and_extract_line(
 
                 if tag_slice.len() == 1 {
                     if let TemplateSegment::Tag(lbl) = &tag_slice[0] {
-                        total_items += 1;
+                        if !is_ignored_label(lbl) {
+                            total_items += 1;
+                        }
                         if apply_template_label(lbl, captured, signals, current_signal, &mut same_line_entry_count) {
-                            matched_items += 1;
+                            if !is_ignored_label(lbl) {
+                                matched_items += 1;
+                            }
                         } else {
                             return None;
                         }
                     }
                 } else if tag_slice.len() == 2 {
+                    // Caso 2: dos etiquetas consecutivas; se divide el texto capturado en dos partes
+                    // (dígitos / letras para period_digit / period_name, o por el primer espacio)
                     if let (TemplateSegment::Tag(l1), TemplateSegment::Tag(l2)) = (&tag_slice[0], &tag_slice[1]) {
-                        total_items += 2;
+                        if !is_ignored_label(l1) {
+                            total_items += 1;
+                        }
+                        if !is_ignored_label(l2) {
+                            total_items += 1;
+                        }
                         let cap_trim = captured.trim();
                         let split_idx = if l1 == "period_digit" {
                             cap_trim.chars().take_while(|c| c.is_ascii_digit()).map(|c| c.len_utf8()).sum()
@@ -2026,17 +2142,27 @@ fn match_and_extract_line(
                         if apply_template_label(l1, part1.trim(), signals, current_signal, &mut same_line_entry_count)
                             && apply_template_label(l2, part2.trim(), signals, current_signal, &mut same_line_entry_count)
                         {
-                            matched_items += 2;
+                            if !is_ignored_label(l1) {
+                                matched_items += 1;
+                            }
+                            if !is_ignored_label(l2) {
+                                matched_items += 1;
+                            }
                         } else {
                             return None;
                         }
                     }
                 } else {
+                    // Caso 3: tres o más etiquetas; todas reciben el mismo texto capturado
                     for seg in tag_slice {
                         if let TemplateSegment::Tag(lbl) = seg {
-                            total_items += 1;
+                            if !is_ignored_label(lbl) {
+                                total_items += 1;
+                            }
                             if apply_template_label(lbl, captured, signals, current_signal, &mut same_line_entry_count) {
-                                matched_items += 1;
+                                if !is_ignored_label(lbl) {
+                                    matched_items += 1;
+                                }
                             } else {
                                 return None;
                             }
@@ -2044,12 +2170,14 @@ fn match_and_extract_line(
                     }
                 }
 
+                // Avanza más allá del texto capturado y del literal delimitador
                 pos = next_pos;
             }
         }
     }
 
     // Verificar que no haya quedado texto estático sobrante sin consumir en orig_line
+    // (el resultado es el par de contadores usado para puntuar la coincidencia)
     if !o_clean[pos..].trim().is_empty() {
         return None;
     }
@@ -2057,15 +2185,87 @@ fn match_and_extract_line(
     Some((total_items, matched_items))
 }
 
+fn match_and_extract_line(
+    orig_line: &str,
+    tpl_line: &str,
+    end_char_new_line: Option<bool>,
+    signals: &mut Vec<Signal>,
+    current_signal: &mut Signal,
+) -> Option<(usize, usize)> {
+    if tpl_line.contains("$(_)") || tpl_line.contains("$(_line)") || tpl_line.contains("$(_lines)") {
+        let backup_signals = signals.clone();
+        let backup_current_signal = current_signal.clone();
+
+        // Compara la cantidad de tokens del template con la de la línea original.
+        // Si el template excede en N tokens, se eliminan N etiquetas $(_) del template
+        // (como si no existieran) en lugar de omitir tokens de la línea.
+        // Si no excede, $(_) consume (y omite) el token correspondiente.
+        let tpl_tokens = preprocess_template_line(tpl_line, orig_line).split_whitespace().count();
+        let orig_tokens = orig_line.split_whitespace().count();
+        let excess = tpl_tokens.saturating_sub(orig_tokens);
+
+        // Candidatos en orden de preferencia: (template a usar)
+        let stripped = strip_optional_underscore_n(tpl_line, excess);
+        let all_stripped = strip_all_optional_tags(tpl_line);
+        let mut candidates: Vec<String> = if excess > 0 && tpl_line.contains("$(_)") {
+            // Primero sin las $(_) sobrantes; si falla, el template original
+            vec![stripped, tpl_line.to_string()]
+        } else {
+            // Primero consumiendo $(_) / $(_line) / $(_lines); si falla, sin ninguna etiqueta opcional
+            vec![tpl_line.to_string(), strip_optional_underscore(tpl_line)]
+        };
+        if !candidates.contains(&all_stripped) {
+            candidates.push(all_stripped);
+        }
+
+        for cand in candidates {
+            if cand.is_empty() {
+                continue;
+            }
+            if let Some(res) = match_and_extract_line_core(orig_line, &cand, end_char_new_line, signals, current_signal) {
+                return Some(res);
+            }
+            // Restaurar estado antes del siguiente intento
+            *signals = backup_signals.clone();
+            *current_signal = backup_current_signal.clone();
+        }
+
+        return None;
+    }
+
+    match_and_extract_line_core(orig_line, tpl_line, end_char_new_line, signals, current_signal)
+}
+
 /// Analiza un texto original de señales de trading comparándolo contra un texto plantilla que contiene etiquetas `$(etiqueta)`.
 /// Retorna `Option<Vec<Signal>>` conteniendo la lista de señales extraídas si existe un 100% de coincidencia, o `None`.
 pub fn parse_template(original_text: &str, template_text: &str, end_char_new_line: Option<bool>) -> Option<Vec<Signal>> {
     let orig_lines: Vec<&str> = original_text.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
-    let tpl_lines: Vec<&str> = template_text.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    let raw_tpl_lines: Vec<&str> = template_text.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
 
-    if orig_lines.is_empty() || tpl_lines.is_empty() {
+    if orig_lines.is_empty() || raw_tpl_lines.is_empty() {
         return None;
     }
+
+    // Expandir cualquier línea que contenga $(_lines) junto con otros tokens en la misma línea:
+    // convierte la parte de la línea en $(_line) y agrega una línea separada $(_lines) para el resto de líneas.
+    let mut expanded_tpl_lines: Vec<String> = Vec::new();
+    for &line in &raw_tpl_lines {
+        if line.contains("$(_lines)") && !is_pure_wildcard_line(line) {
+            let trimmed = line.trim();
+            if trimmed.starts_with("$(_lines)") {
+                expanded_tpl_lines.push("$(_lines)".to_string());
+                let rest = trimmed.replacen("$(_lines)", "$(_line)", 1);
+                expanded_tpl_lines.push(rest);
+            } else {
+                let replaced = trimmed.replace("$(_lines)", "$(_line)");
+                expanded_tpl_lines.push(replaced);
+                expanded_tpl_lines.push("$(_lines)".to_string());
+            }
+        } else {
+            expanded_tpl_lines.push(line.to_string());
+        }
+    }
+    let tpl_lines: Vec<&str> = expanded_tpl_lines.iter().map(|s| s.as_str()).collect();
 
     let mut signals: Vec<Signal> = Vec::new();
     let mut current_signal = Signal::default();
@@ -2090,6 +2290,8 @@ pub fn parse_template(original_text: &str, template_text: &str, end_char_new_lin
             }
         }
 
+        let has_required_subsequent = tpl_lines[1..].iter().any(|l| !is_optional_template_line(l));
+
         for b_idx in 0..block_starts.len() {
             let start = block_starts[b_idx];
             let end = if b_idx + 1 < block_starts.len() {
@@ -2098,7 +2300,7 @@ pub fn parse_template(original_text: &str, template_text: &str, end_char_new_lin
                 orig_lines.len()
             };
             let block = &orig_lines[start..end];
-            if block.len() < 2 {
+            if block.len() < 2 && has_required_subsequent {
                 return None;
             }
 
@@ -2120,6 +2322,29 @@ pub fn parse_template(original_text: &str, template_text: &str, end_char_new_lin
                 let u_orig = orig_idx as usize;
                 let u_tpl = tpl_idx as usize;
 
+                if is_optional_template_line(tpl_lines[u_tpl]) {
+                    let mut matches_earlier = false;
+                    let mut look = u_tpl as isize - 1;
+                    while look >= 1 {
+                        if !is_pure_wildcard_line(tpl_lines[look as usize]) {
+                            let mut probe_sigs = Vec::new();
+                            let mut probe_sig = sig_local.clone();
+                            if match_and_extract_line(block[u_orig], tpl_lines[look as usize], end_char_new_line, &mut probe_sigs, &mut probe_sig).is_some() {
+                                matches_earlier = true;
+                                break;
+                            }
+                        }
+                        if !is_optional_template_line(tpl_lines[look as usize]) {
+                            break;
+                        }
+                        look -= 1;
+                    }
+                    if matches_earlier {
+                        tpl_idx -= 1;
+                        continue;
+                    }
+                }
+
                 if let Some((t_cnt, m_cnt)) = match_and_extract_line(
                     block[u_orig],
                     tpl_lines[u_tpl],
@@ -2131,7 +2356,10 @@ pub fn parse_template(original_text: &str, template_text: &str, end_char_new_lin
                     total_items += t_cnt;
                     matched_items += m_cnt;
 
-                    if is_tp_template_line(tpl_lines[u_tpl]) {
+                    if is_multiline_optional_template_line(tpl_lines[u_tpl]) {
+                        // $(_lines) consume la línea actual y se mantiene activa para más líneas
+                        orig_idx -= 1;
+                    } else if is_tp_template_line(tpl_lines[u_tpl]) {
                         orig_idx -= 1;
                         // Continuar iterando sobre múltiples líneas de Take Profit sin avanzar tpl_idx
                         while orig_idx >= 1 {
@@ -2169,9 +2397,15 @@ pub fn parse_template(original_text: &str, template_text: &str, end_char_new_lin
                         orig_idx -= 1;
                         tpl_idx -= 1;
                     }
+                } else if is_optional_template_line(tpl_lines[u_tpl]) {
+                    tpl_idx -= 1;
                 } else {
                     return None;
                 }
+            }
+
+            while tpl_idx >= 1 && is_optional_template_line(tpl_lines[tpl_idx as usize]) {
+                tpl_idx -= 1;
             }
 
             // Si quedaron líneas sin coincidir en el bloque o en el template, no hay 100% de coincidencia
@@ -2192,6 +2426,52 @@ pub fn parse_template(original_text: &str, template_text: &str, end_char_new_lin
 
         while orig_idx < orig_lines.len() {
             if tpl_idx < tpl_lines.len() {
+                if is_optional_template_line(tpl_lines[tpl_idx]) {
+                    let mut matches_future = false;
+                    for lookahead in (tpl_idx + 1)..tpl_lines.len() {
+                        if !is_pure_wildcard_line(tpl_lines[lookahead]) {
+                            let mut probe_sigs = Vec::new();
+                            let mut probe_sig = current_signal.clone();
+                            if match_and_extract_line(orig_lines[orig_idx], tpl_lines[lookahead], end_char_new_line, &mut probe_sigs, &mut probe_sig).is_some() {
+                                matches_future = true;
+                                break;
+                            }
+                        }
+                        if !is_optional_template_line(tpl_lines[lookahead]) {
+                            break;
+                        }
+                    }
+                    if matches_future {
+                        tpl_idx += 1;
+                        continue;
+                    }
+
+                    // Si el resto del template es puramente opcional y esta línea inicia una nueva señal, saltar al reinicio
+                    let remaining_all_optional = ((tpl_idx + 1)..tpl_lines.len()).all(|i| is_optional_template_line(tpl_lines[i]));
+                    if remaining_all_optional && tpl_idx > 0 && current_signal.symbol.is_some() && current_signal.action.is_some() {
+                        let mut matches_restart = false;
+                        for cand_idx in 0..tpl_idx {
+                            if !is_pure_wildcard_line(tpl_lines[cand_idx])
+                                && (cand_idx == 0
+                                    || tpl_lines[cand_idx].contains("$(symbol)")
+                                    || tpl_lines[cand_idx].contains("$(entry_time)")
+                                    || tpl_lines[cand_idx].contains("$(period)"))
+                            {
+                                let mut probe_signals = Vec::new();
+                                let mut probe_sig = Signal::default();
+                                if match_and_extract_line(orig_lines[orig_idx], tpl_lines[cand_idx], end_char_new_line, &mut probe_signals, &mut probe_sig).is_some() {
+                                    matches_restart = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if matches_restart {
+                            tpl_idx = tpl_lines.len();
+                            continue;
+                        }
+                    }
+                }
+
                 if let Some((t_cnt, m_cnt)) = match_and_extract_line(
                     orig_lines[orig_idx],
                     tpl_lines[tpl_idx],
@@ -2203,7 +2483,10 @@ pub fn parse_template(original_text: &str, template_text: &str, end_char_new_lin
                     total_items += t_cnt;
                     matched_items += m_cnt;
 
-                    if is_tp_template_line(tpl_lines[tpl_idx]) {
+                    if is_multiline_optional_template_line(tpl_lines[tpl_idx]) {
+                        // $(_lines) consume todas las líneas siguientes hasta que coincida una línea posterior o reinicio
+                        orig_idx += 1;
+                    } else if is_tp_template_line(tpl_lines[tpl_idx]) {
                         orig_idx += 1;
                         while orig_idx < orig_lines.len() {
                             if let Some((tp_t, tp_m)) = match_and_extract_line(
@@ -2238,6 +2521,9 @@ pub fn parse_template(original_text: &str, template_text: &str, end_char_new_lin
                         orig_idx += 1;
                         tpl_idx += 1;
                     }
+                    continue;
+                } else if is_optional_template_line(tpl_lines[tpl_idx]) {
+                    tpl_idx += 1;
                     continue;
                 }
             }
@@ -2281,9 +2567,11 @@ pub fn parse_template(original_text: &str, template_text: &str, end_char_new_lin
         return None;
     }
 
-    // Verificar que todas las líneas del template fueron visitadas
-    if visited_tpl_lines.len() < tpl_lines.len() {
-        return None;
+    // Verificar que todas las líneas no opcionales del template fueron visitadas
+    for (idx, line) in tpl_lines.iter().enumerate() {
+        if !visited_tpl_lines.contains(&idx) && !is_optional_template_line(line) {
+            return None;
+        }
     }
 
     // Verificar que cada señal extraída satisfaga todos los requisitos del template
@@ -2731,8 +3019,12 @@ pub fn parse_template_scored(original_text: &str, modified_text: &str, line_inde
                         matched_tokens += 1;
                     }
                 },
+                "_" | "_line" | "_lines" => {
+                    // Las etiquetas _, _line y _lines no se toman en cuenta para el porcentaje final
+                    total_template_tokens = total_template_tokens.saturating_sub(1);
+                },
                 // Ignorar etiquetas que no representan propiedades directamente asignables aquí
-                "indicator" | "date" | "custom" | "dismiss" | "variable" | "_" | _ => {
+                "indicator" | "date" | "custom" | "dismiss" | "variable" | _ => {
                     // agraga valor al ratio
                     if !orig_val.is_empty() {
                         matched_tokens += 1;
@@ -2742,13 +3034,17 @@ pub fn parse_template_scored(original_text: &str, modified_text: &str, line_inde
             }
             labeled = label.to_string();
         }
-        if labeled != "profit_price" {
+        if labeled != "profit_price" && labeled != "_lines" {
             mod_idx += 1;
         }
 
         // Contabilizar tokens remanentes no-vacíos de la plantilla que no se llegaron a zip en esta línea
         for extra_mod in &mod_toks[zipped_len..] {
-            if !extra_mod.1.trim().is_empty() {
+            if !extra_mod.1.trim().is_empty()
+                && !extra_mod.1.contains("$(_)")
+                && !extra_mod.1.contains("$(_line)")
+                && !extra_mod.1.contains("$(_lines)")
+            {
                 total_template_tokens += 1;
             }
         }
@@ -2775,7 +3071,11 @@ pub fn parse_template_scored(original_text: &str, modified_text: &str, line_inde
             let line_req = TemplateRequirements::from_pattern(m_line);
             if line_req.has_symbol || line_req.has_action || line_req.has_entry || line_req.has_stoploss || line_req.has_profit || line_req.has_period || line_req.has_time {
                 for tok in m_line.iter_tokens() {
-                    if !tok.1.trim().is_empty() {
+                    if !tok.1.trim().is_empty()
+                        && !tok.1.contains("$(_)")
+                        && !tok.1.contains("$(_line)")
+                        && !tok.1.contains("$(_lines)")
+                    {
                         total_template_tokens += 1;
                     }
                 }
@@ -3194,5 +3494,96 @@ mod tests {
             println!(" - Falló ID {}: {} (activo={})", id, name, is_active);
         }
         assert!(failures.is_empty(), "Expected 100% of database examples to match their templates");
+    }
+
+    #[test]
+    fn test_parse_template_with_optional_underscore_token() {
+        // 1. Token $(_) al final de la línea: presente y ausente
+        let pat_end_tok = "$(symbol) $(action) $(entry_price) $(_)\nTP $(profit_price)\nSL $(stoploss)\n";
+        let sig_end_present = "EURUSD BUY 1.0850 NOW\nTP 1.0900\nSL 1.0800\n";
+        let sig_end_absent = "EURUSD BUY 1.0850\nTP 1.0900\nSL 1.0800\n";
+
+        let res_present = parse_template(sig_end_present, pat_end_tok, None);
+        assert!(res_present.is_some(), "Expected template with $(_) present at end of line to match 100%");
+        let sigs_p = res_present.unwrap();
+        assert_eq!(sigs_p.len(), 1);
+        assert_eq!(sigs_p[0].action, Some(true));
+
+        let res_absent = parse_template(sig_end_absent, pat_end_tok, None);
+        assert!(res_absent.is_some(), "Expected template with $(_) absent at end of line to match 100%");
+        let sigs_a = res_absent.unwrap();
+        assert_eq!(sigs_a.len(), 1);
+        assert_eq!(sigs_a[0].action, Some(true));
+
+        // 2. Token $(_) al inicio de la línea: presente y ausente
+        let pat_start = "$(_) $(symbol) $(action) $(entry_price)\nTP $(profit_price)\nSL $(stoploss)\n";
+        let sig_start_present = "ALERTA EURUSD BUY 1.0850\nTP 1.0900\nSL 1.0800\n";
+        let sig_start_absent = "EURUSD BUY 1.0850\nTP 1.0900\nSL 1.0800\n";
+
+        let res_start_p = parse_template(sig_start_present, pat_start, None);
+        assert!(res_start_p.is_some(), "Expected template with $(_) present at start of line to match");
+        let res_start_a = parse_template(sig_start_absent, pat_start, None);
+        assert!(res_start_a.is_some(), "Expected template with $(_) absent at start of line to match");
+
+        // 3. Token $(_) en medio de la línea: presente y ausente
+        let pat_mid = "$(symbol) $(_) $(action) $(entry_price)\nTP $(profit_price)\nSL $(stoploss)\n";
+        let sig_mid_present = "EURUSD OTC BUY 1.0850\nTP 1.0900\nSL 1.0800\n";
+        let sig_mid_absent = "EURUSD BUY 1.0850\nTP 1.0900\nSL 1.0800\n";
+
+        let res_mid_p = parse_template(sig_mid_present, pat_mid, None);
+        assert!(res_mid_p.is_some(), "Expected template with $(_) present in middle of line to match");
+        let res_mid_a = parse_template(sig_mid_absent, pat_mid, None);
+        assert!(res_mid_a.is_some(), "Expected template with $(_) absent in middle of line to match");
+
+        // 4. Token $(_) con delimitadores: ($(_))
+        let pat_delim = "$(symbol) ($(_)) $(action) $(entry_price)\nTP $(profit_price)\nSL $(stoploss)\n";
+        let sig_delim_present = "EURUSD (OTC) BUY 1.0850\nTP 1.0900\nSL 1.0800\n";
+        let sig_delim_absent = "EURUSD BUY 1.0850\nTP 1.0900\nSL 1.0800\n";
+
+        let res_delim_p = parse_template(sig_delim_present, pat_delim, None);
+        assert!(res_delim_p.is_some(), "Expected template with ($(_)) present to match");
+        let res_delim_a = parse_template(sig_delim_absent, pat_delim, None);
+        assert!(res_delim_a.is_some(), "Expected template with ($(_)) absent to match");
+
+        // 5. Línea con un único token opcional $(_): presente y ausente; falla con múltiples tokens
+        let pat_one_tok_line = "$(symbol) $(action) $(entry_price)\n$(_)\nTP $(profit_price)\nSL $(stoploss)\n";
+        let sig_one_tok_present = "EURUSD BUY 1.0850\nVIP\nTP 1.0900\nSL 1.0800\n";
+        let sig_one_tok_absent = "EURUSD BUY 1.0850\nTP 1.0900\nSL 1.0800\n";
+        let sig_multi_tok_line = "EURUSD BUY 1.0850\nEXTRA INFO CANAL VIP\nTP 1.0900\nSL 1.0800\n";
+
+        assert!(parse_template(sig_one_tok_present, pat_one_tok_line, None).is_some(), "Expected single-token line to match $(_)");
+        assert!(parse_template(sig_one_tok_absent, pat_one_tok_line, None).is_some(), "Expected absent optional $(_) line to match");
+        assert!(parse_template(sig_multi_tok_line, pat_one_tok_line, None).is_none(), "Expected multi-token line NOT to match single $(_)");
+
+        // 6. Línea completa opcional $(_line): presente (múltiples palabras) y ausente; falla con múltiples líneas
+        let pat_line = "$(symbol) $(action) $(entry_price)\n$(_line)\nTP $(profit_price)\nSL $(stoploss)\n";
+        let sig_line_present = "EURUSD BUY 1.0850\nEXTRA INFO CANAL VIP\nTP 1.0900\nSL 1.0800\n";
+        let sig_line_absent = "EURUSD BUY 1.0850\nTP 1.0900\nSL 1.0800\n";
+        let sig_two_lines = "EURUSD BUY 1.0850\nEXTRA INFO 1\nEXTRA INFO 2\nTP 1.0900\nSL 1.0800\n";
+
+        assert!(parse_template(sig_line_present, pat_line, None).is_some(), "Expected template with optional $(_line) present to match");
+        assert!(parse_template(sig_line_absent, pat_line, None).is_some(), "Expected template with optional $(_line) absent to match");
+        assert!(parse_template(sig_two_lines, pat_line, None).is_none(), "Expected single $(_line) NOT to match two extra lines");
+
+        // 7. Múltiples líneas restantes opcionales $(_lines) al final o en medio: 0, 1 y múltiples líneas
+        let pat_lines_end = "$(symbol) $(action) $(entry_price)\nTP $(profit_price)\nSL $(stoploss)\n$(_lines)\n";
+        let sig_lines_0 = "EURUSD BUY 1.0850\nTP 1.0900\nSL 1.0800\n";
+        let sig_lines_1 = "EURUSD BUY 1.0850\nTP 1.0900\nSL 1.0800\nEXTRA FOOTER LINK\n";
+        let sig_lines_3 = "EURUSD BUY 1.0850\nTP 1.0900\nSL 1.0800\nFOOTER LINE 1\nFOOTER LINE 2\nFOOTER LINE 3\n";
+
+        assert!(parse_template(sig_lines_0, pat_lines_end, None).is_some(), "Expected $(_lines) with 0 lines to match");
+        assert!(parse_template(sig_lines_1, pat_lines_end, None).is_some(), "Expected $(_lines) with 1 line to match");
+        assert!(parse_template(sig_lines_3, pat_lines_end, None).is_some(), "Expected $(_lines) with 3 lines to match");
+
+        // 8. $(_lines) en modo forward (primera línea no es main)
+        let pat_fwd_lines = "$(symbol) $(action)\nENTRY $(entry_price)\nTP $(profit_price)\nSL $(stoploss)\n$(_lines)\n";
+        let sig_fwd_lines_3 = "EURUSD BUY\nENTRY 1.0850\nTP 1.0900\nSL 1.0800\nNOTA 1\nNOTA 2\nNOTA 3\n";
+        assert!(parse_template(sig_fwd_lines_3, pat_fwd_lines, None).is_some(), "Expected forward $(_lines) with 3 lines to match");
+
+        // 9. parse_template_scored también excluye $(_), $(_line) y $(_lines) del porcentaje
+        let scored_p = parse_template_scored(sig_end_present, pat_end_tok, None, None, None);
+        assert!(scored_p.is_some());
+        let (_, score_p) = scored_p.unwrap();
+        assert!(score_p >= 98.0, "Score should be >= 98% with $(_) token present: {}", score_p);
     }
 }

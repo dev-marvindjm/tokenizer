@@ -52,7 +52,7 @@ pub fn tokenize_text_internal(text: &str) -> Vec<Token> {
 
     // Keep track of extracted signal components for semantic tagging
     let mut extracted_symbol: Option<String> = None;
-    let mut extracted_action: Option<bool> = None;
+    let mut _extracted_action: Option<bool> = None;
     let mut extracted_entry_prices: Vec<f32> = Vec::new();
     let mut extracted_sl: Option<f32> = None;
     let mut extracted_tps: Vec<f32> = Vec::new();
@@ -77,7 +77,7 @@ pub fn tokenize_text_internal(text: &str) -> Vec<Token> {
                 }
             }
             if sig.action.is_some() {
-                extracted_action = sig.action;
+                _extracted_action = sig.action;
             }
             if let Some(ref entry) = sig.entry {
                 match entry {

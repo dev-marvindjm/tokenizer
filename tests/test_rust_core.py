@@ -40,3 +40,28 @@ def test_rust_core_match_template():
     assert matched.symbol == "EURUSD"
     assert matched.action == "BUY"
     assert matched.template_name == "Forex_TP_SL"
+
+def test_rust_core_optional_underscore_token():
+    pattern = "$(symbol) $(action) $(entry_price) $(_)\nTP $(profit_price)\nSL $(stoploss)"
+    text_present = "EURUSD BUY 1.0850 NOW\nTP 1.0900\nSL 1.0800"
+    text_absent = "EURUSD BUY 1.0850\nTP 1.0900\nSL 1.0800"
+
+    assert rust_core.parse_template_exact_json(text_present, pattern, None) is not None
+    assert rust_core.parse_template_exact_json(text_absent, pattern, None) is not None
+
+    # $(_line) matches an optional entire single line (can have multiple words)
+    pattern_line = "$(symbol) $(action) $(entry_price)\n$(_line)\nTP $(profit_price)\nSL $(stoploss)"
+    text_line_present = "EURUSD BUY 1.0850\nCANAL VIP EXTRA\nTP 1.0900\nSL 1.0800"
+    text_line_absent = "EURUSD BUY 1.0850\nTP 1.0900\nSL 1.0800"
+
+    assert rust_core.parse_template_exact_json(text_line_present, pattern_line, None) is not None
+    assert rust_core.parse_template_exact_json(text_line_absent, pattern_line, None) is not None
+
+    # $(_lines) matches all remaining lines (0, 1, or multiple lines)
+    pattern_lines = "$(symbol) $(action) $(entry_price)\nTP $(profit_price)\nSL $(stoploss)\n$(_lines)"
+    text_lines_multi = "EURUSD BUY 1.0850\nTP 1.0900\nSL 1.0800\nFOOTER LINE 1\nFOOTER LINE 2\nFOOTER LINE 3"
+
+    assert rust_core.parse_template_exact_json(text_line_absent, pattern_lines, None) is not None
+    assert rust_core.parse_template_exact_json(text_lines_multi, pattern_lines, None) is not None
+
+
